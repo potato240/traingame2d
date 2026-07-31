@@ -1,1 +1,1355 @@
-hello world!
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rail Country</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:#000; overflow:hidden; font-family:monospace; }
+    canvas { display:block; }
+
+    #hud { position:fixed; top:12px; left:12px; color:#fff; font-size:13px; line-height:1.9; text-shadow:1px 1px 3px #000; pointer-events:none; z-index:12; }
+    #ticket-line { color:#ffe066; font-size:15px; }
+    #status-line { color:#9fe6a0; }
+    #next-line   { color:#aaddff; }
+    #stats-line  { color:#bbb; }
+
+    #board { position:fixed; top:12px; right:12px; background:rgba(6,10,18,0.82); border:1px solid #2f3d4d; border-radius:8px; padding:10px 14px; color:#ddd; font-size:12px; z-index:12; display:none; min-width:280px; }
+    #board.show { display:block; }
+    #board h3 { color:#ffcc44; font-size:12px; letter-spacing:2px; margin-bottom:6px; font-weight:normal; }
+    #board .row { display:flex; justify-content:space-between; gap:14px; line-height:1.8; }
+    #board .row .dest { color:#fff; }
+    #board .row .eta  { color:#8fe08f; }
+
+    #prompt { position:fixed; bottom:96px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.75); border:1px solid #4a5a6a; border-radius:8px; padding:9px 18px; color:#fff; font-size:14px; z-index:14; opacity:0; transition:opacity 0.15s; pointer-events:none; text-align:center; }
+    #prompt.show { opacity:1; }
+
+    #banner { position:fixed; top:15%; left:50%; transform:translateX(-50%); text-align:center; z-index:16; pointer-events:none; opacity:0; transition:opacity 0.35s; }
+    #banner .title { color:#fff; font-size:27px; letter-spacing:3px; text-shadow:0 0 18px #000; }
+    #banner .sub   { color:#9fe6a0; font-size:14px; margin-top:6px; text-shadow:0 0 10px #000; }
+    #banner.show { opacity:1; }
+
+    #toast { position:fixed; bottom:56px; left:50%; transform:translateX(-50%); color:#ffe066; font-size:15px; text-shadow:0 0 10px #000; opacity:0; transition:opacity 0.3s; z-index:16; pointer-events:none; }
+    #toast.show { opacity:1; }
+
+    #instructions { position:fixed; bottom:12px; left:12px; color:#666; font-size:11px; pointer-events:none; line-height:1.8; z-index:12; }
+
+    #map-overlay { display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(5,8,15,0.97); border:2px solid #444; border-radius:10px; padding:14px; z-index:20; }
+    #map-overlay.open { display:block; }
+    #map-close { background:none; border:none; color:#888; font-size:20px; cursor:pointer; line-height:1; }
+    #map-legend { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; font-size:10px; color:#aaa; max-width:640px; }
+    #map-legend i { display:inline-block; width:16px; height:4px; border-radius:2px; margin-right:4px; vertical-align:middle; }
+
+    #start-screen { position:fixed; inset:0; background:rgba(4,8,18,0.97); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:40; }
+    #start-screen h1 { color:#fff; font-size:32px; margin-bottom:6px; letter-spacing:4px; }
+    #start-screen p  { color:#8a94a6; font-size:13px; margin-bottom:22px; text-align:center; line-height:1.9; }
+    #shirt-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; max-width:420px; width:100%; }
+    .shirt-btn { background:#141a26; border:3px solid #3a4252; border-radius:12px; padding:12px 8px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:8px; transition:border-color 0.15s, transform 0.1s; }
+    .shirt-btn:hover { border-color:#8fa; transform:scale(1.05); }
+    .shirt-btn.selected { border-color:#fff; box-shadow:0 0 12px rgba(255,255,255,0.35); }
+    .shirt-swatch { width:34px; height:34px; border-radius:50%; border:2px solid rgba(255,255,255,0.2); }
+    .shirt-btn span { color:#ddd; font-size:12px; font-family:sans-serif; }
+    #start-btn { margin-top:24px; padding:12px 44px; background:#1a7a3a; color:#fff; border:none; border-radius:8px; font-size:16px; cursor:pointer; letter-spacing:2px; }
+    #start-btn:hover { background:#23a050; }
+  </style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="start-screen">
+  <h1>🚉 RAIL COUNTRY</h1>
+  <p>
+    Walk to a station, read the departure board, and get on a train.<br>
+    Trains drive themselves and call at every stop. Change lines at the interchanges.<br>
+    Mind the tracks — use the footbridges and level crossings.
+  </p>
+  <div id="shirt-grid"></div>
+  <button id="start-btn" onclick="startGame()">START TRAVELLING</button>
+</div>
+
+<div id="hud">
+  <div id="ticket-line">🎟️ —</div>
+  <div id="status-line">🚶 Walking</div>
+  <div id="next-line"></div>
+  <div id="stats-line">🕐 06:00</div>
+</div>
+
+<div id="board"><h3>DEPARTURES</h3><div id="board-rows"></div></div>
+
+<div id="prompt"></div>
+<div id="banner"><div class="title"></div><div class="sub"></div></div>
+<div id="toast"></div>
+
+<div id="map-overlay">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+    <span style="color:#fff;font-size:15px;font-weight:bold">🗺️ Rail Country — network map</span>
+    <button id="map-close" onclick="closeMap()">✕</button>
+  </div>
+  <canvas id="map-canvas" width="640" height="640"></canvas>
+  <div id="map-legend"></div>
+</div>
+
+<div id="instructions">
+  WASD / arrows Walk &nbsp;|&nbsp; SHIFT Run &nbsp;|&nbsp; E Board / get off &nbsp;|&nbsp; M Map &nbsp;|&nbsp; +/− Zoom
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// SETUP
+// ═══════════════════════════════════════════════════════════
+const canvas = document.getElementById('game');
+const ctx    = canvas.getContext('2d');
+function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
+resize(); addEventListener('resize', resize);
+
+const WORLD = 42000, TILE = 64;
+let zoom = 0.5;
+let gameStarted = false;
+
+function hash(x, y) {
+  let h = (Math.imul(x|0, 374761393) + Math.imul(y|0, 1234567891)) >>> 0;
+  h = (Math.imul(h ^ (h >>> 16), 0x45d9f3b)) >>> 0;
+  return h;
+}
+function smooth(t) { return t <= 0 ? 0 : t >= 1 ? 1 : t*t*(3-2*t); }
+function shade(hex, amt) {
+  const n = parseInt(hex.slice(1), 16), f = amt < 0 ? 1+amt : 1-amt;
+  return `rgb(${Math.round(((n>>16)&255)*f)},${Math.round(((n>>8)&255)*f)},${Math.round((n&255)*f)})`;
+}
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath(); c.moveTo(x+r, y);
+  c.arcTo(x+w, y, x+w, y+h, r); c.arcTo(x+w, y+h, x, y+h, r);
+  c.arcTo(x, y+h, x, y, r);     c.arcTo(x, y, x+w, y, r);
+  c.closePath();
+}
+
+// ═══════════════════════════════════════════════════════════
+// ROLLING STOCK DIMENSIONS — platforms are sized from these
+// ═══════════════════════════════════════════════════════════
+const CAR_LEN = 88, CAR_W = 34, CAR_GAP = 12, CARS = 4;
+const SPACING = CAR_LEN + CAR_GAP;
+const TRAIN_LEN = SPACING * (CARS - 1) + CAR_LEN;
+const PLATFORM_HALF = TRAIN_LEN / 2 + 40;
+const STRAIGHT = PLATFORM_HALF + 120;      // straight track either side of every station
+
+const TRACK_OFF  = 27;                     // half the gap between the two running lines
+const ISLAND_OFF = 66;                     // tracks bow apart to make room for an island platform
+const PLAT_W     = 78;
+
+// ═══════════════════════════════════════════════════════════
+// THE COUNTRY — the railway is laid out first, towns follow it
+// ═══════════════════════════════════════════════════════════
+const STATION_DATA = [
+  // Western trunk (V1)
+  ['Northport',           5000,  5200],
+  ['Willowmere',          4300, 11500],
+  ['Westhaven',           5200, 20200],
+  ['Stonewell',           4600, 28200],
+  ['Southport',           6000, 35000],
+  // Capital trunk (V3)
+  ['Kestrel Bay',        20200,  5000],
+  ['Highmoor',           19700, 11400],
+  ['Kingsbridge Central',19800, 19600],
+  ['Southbank',          20500, 28200],
+  ['Kingsmoor',          21000, 35200],
+  // Eastern trunk (V5)
+  ['Cliffmoor',          35200,  5200],
+  ['Eastmarket',         36000, 11500],
+  ['Seacliff',           35600, 20000],
+  ['Fairwater',          35000, 28000],
+  ['Longbay',            36000, 35200],
+  // Cross-country rungs
+  ['Ashford',            12500,  5300],
+  ['Redstone',           27800,  5000],
+  ['Fernhill',           11800, 11200],
+  ['Highmoor West',      17400, 12500],
+  ['Ironvale',           27500, 11600],
+  ['Marshend',           12500, 20000],
+  ['Kingsbridge East',   21200, 20800],
+  ['Havenwood',          28000, 20200],
+  ['Oakhurst',           12200, 28000],
+  ['Southbank East',     22000, 29000],
+  ['Baytown',            27500, 28200],
+  ['Fernwick',           14000, 35200],
+  ['Harbour End',        29000, 35000],
+];
+
+const STATIONS = STATION_DATA.map(([name, x, y]) => ({
+  name, x, y, links: [], lines: [], axis: 0, type: 'side',
+}));
+const SI = {};
+STATIONS.forEach((s, i) => SI[s.name] = i);
+
+// Interchange complexes: two stations a short walk apart, joined by a covered
+// concourse, where one line crosses another between them.
+const COMPLEXES = [
+  ['Highmoor', 'Highmoor West'],
+  ['Kingsbridge Central', 'Kingsbridge East'],
+  ['Southbank', 'Southbank East'],
+].map(names => names.map(n => SI[n]));
+
+// Every line is a loop, so services run continuously and evenly spaced.
+const LINE_DATA = [
+  { name:'Northern Loop', colour:'#e67e22', stops:[
+    'Northport','Ashford','Kestrel Bay','Redstone','Cliffmoor','Eastmarket',
+    'Ironvale','Highmoor West','Fernhill','Willowmere'] },
+  { name:'Midland Loop', colour:'#d4ac0d', stops:[
+    'Willowmere','Fernhill','Highmoor West','Ironvale','Eastmarket','Seacliff',
+    'Havenwood','Kingsbridge East','Marshend','Westhaven'] },
+  { name:'Central Loop', colour:'#8e44ad', stops:[
+    'Westhaven','Marshend','Kingsbridge East','Havenwood','Seacliff','Fairwater',
+    'Baytown','Southbank East','Oakhurst','Stonewell'] },
+  { name:'Southern Loop', colour:'#16a085', stops:[
+    'Stonewell','Oakhurst','Southbank East','Baytown','Fairwater','Longbay',
+    'Harbour End','Kingsmoor','Fernwick','Southport'] },
+  { name:'Capital Line', colour:'#c0392b', stops:[
+    'Kestrel Bay','Highmoor','Kingsbridge Central','Southbank','Kingsmoor',
+    'Fernwick','Southport','Stonewell','Westhaven','Willowmere','Northport','Ashford'] },
+  { name:'Cross-Capital', colour:'#27ae60', stops:[
+    'Kestrel Bay','Highmoor','Kingsbridge Central','Southbank','Kingsmoor',
+    'Harbour End','Longbay','Fairwater','Seacliff','Eastmarket','Cliffmoor','Redstone'] },
+  { name:'Grand Circle', colour:'#2980b9', stops:[
+    'Northport','Ashford','Kestrel Bay','Redstone','Cliffmoor','Eastmarket','Seacliff',
+    'Fairwater','Longbay','Harbour End','Kingsmoor','Fernwick','Southport',
+    'Stonewell','Westhaven','Willowmere'] },
+];
+
+// ── Build the segment graph (a segment is one stretch of double track) ──
+const SEGMENTS = [];
+const segKey = {};
+function segIndex(a, b) {
+  const k = Math.min(a,b) + '|' + Math.max(a,b);
+  if (k in segKey) return segKey[k];
+  const idx = SEGMENTS.length;
+  SEGMENTS.push({ a:Math.min(a,b), b:Math.max(a,b) });
+  segKey[k] = idx;
+  return idx;
+}
+
+const LINES = LINE_DATA.map((d, li) => {
+  const stops = d.stops.map(n => SI[n]);
+  const segs = [];
+  for (let i = 0; i < stops.length; i++) {
+    const a = stops[i], b = stops[(i+1) % stops.length];
+    segs.push({ seg: segIndex(a, b), from: a, to: b });
+    if (!STATIONS[a].lines.includes(li)) STATIONS[a].lines.push(li);
+  }
+  return { ...d, index: li, stops, segs };
+});
+
+for (const s of SEGMENTS) {
+  STATIONS[s.a].links.push(s.b);
+  STATIONS[s.b].links.push(s.a);
+}
+
+// ── Station axis: railways run straight through a station, so each one gets a
+// single orientation that all its lines share (orientation-averaged) ──
+STATIONS.forEach((st, i) => {
+  const dirs = st.links.map(j => Math.atan2(STATIONS[j].y - st.y, STATIONS[j].x - st.x));
+  // Align with the through route — the pair of lines closest to a straight run —
+  // so branches diverge smoothly instead of kinking the main line.
+  let bestA = dirs[0], bestB = dirs[0], bestSpread = -1;
+  for (let p = 0; p < dirs.length; p++) for (let q = p+1; q < dirs.length; q++) {
+    let diff = Math.abs(dirs[p] - dirs[q]) % (Math.PI*2);
+    if (diff > Math.PI) diff = Math.PI*2 - diff;
+    if (diff > bestSpread) { bestSpread = diff; bestA = dirs[p]; bestB = dirs[q]; }
+  }
+  const sx = Math.cos(bestA*2) + Math.cos(bestB*2), sy = Math.sin(bestA*2) + Math.sin(bestB*2);
+  st.axis = Math.atan2(sy, sx) / 2;
+  // Busy stations get the full treatment: an island platform between the tracks
+  // plus a face on the outside of each track, like a big interchange.
+  st.type = st.lines.length >= 4 ? 'major' : ((hash(i*7+3, 5) % 10) < 5 ? 'island' : 'side');
+});
+// Interchange stations get island platforms (roomier, and the concourse lands on them)
+for (const c of COMPLEXES) for (const i of c) STATIONS[i].type = 'island';
+
+// ── Segment geometry: straight through both stations, one smooth curve between ──
+function unitToward(angle, dx, dy) {
+  let ux = Math.cos(angle), uy = Math.sin(angle);
+  if (ux*dx + uy*dy < 0) { ux = -ux; uy = -uy; }
+  return { x:ux, y:uy };
+}
+
+for (const seg of SEGMENTS) {
+  const A = STATIONS[seg.a], B = STATIONS[seg.b];
+  const tA = unitToward(A.axis, B.x - A.x, B.y - A.y);
+  const tB = unitToward(B.axis, A.x - B.x, A.y - B.y);
+  const SA = { x:A.x + tA.x*STRAIGHT, y:A.y + tA.y*STRAIGHT };
+  const SB = { x:B.x + tB.x*STRAIGHT, y:B.y + tB.y*STRAIGHT };
+  const k = Math.hypot(SB.x-SA.x, SB.y-SA.y) * 0.42;
+  const C1 = { x:SA.x + tA.x*k, y:SA.y + tA.y*k };
+  const C2 = { x:SB.x + tB.x*k, y:SB.y + tB.y*k };
+
+  const pts = [{ x:A.x, y:A.y }];
+  for (let i = 1; i <= 4; i++) pts.push({ x:A.x + tA.x*STRAIGHT*i/4, y:A.y + tA.y*STRAIGHT*i/4 });
+  const steps = Math.max(24, Math.round(Math.hypot(SB.x-SA.x, SB.y-SA.y) / 140));
+  for (let i = 1; i < steps; i++) {
+    const t = i/steps, u = 1-t;
+    pts.push({
+      x: u*u*u*SA.x + 3*u*u*t*C1.x + 3*u*t*t*C2.x + t*t*t*SB.x,
+      y: u*u*u*SA.y + 3*u*u*t*C1.y + 3*u*t*t*C2.y + t*t*t*SB.y,
+    });
+  }
+  for (let i = 4; i >= 1; i--) pts.push({ x:B.x + tB.x*STRAIGHT*i/4, y:B.y + tB.y*STRAIGHT*i/4 });
+  pts.push({ x:B.x, y:B.y });
+
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i-1] + Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y));
+  seg.pts = pts; seg.cum = cum; seg.len = cum[cum.length-1];
+  seg.minX = Math.min(...pts.map(p=>p.x)); seg.maxX = Math.max(...pts.map(p=>p.x));
+  seg.minY = Math.min(...pts.map(p=>p.y)); seg.maxY = Math.max(...pts.map(p=>p.y));
+}
+
+function segPos(seg, s) {
+  s = Math.max(0, Math.min(seg.len, s));
+  let i = 1;
+  while (i < seg.cum.length-1 && seg.cum[i] < s) i++;
+  const t = (s - seg.cum[i-1]) / Math.max(1e-6, seg.cum[i] - seg.cum[i-1]);
+  const p0 = seg.pts[i-1], p1 = seg.pts[i];
+  return { x:p0.x+(p1.x-p0.x)*t, y:p0.y+(p1.y-p0.y)*t, ang:Math.atan2(p1.y-p0.y, p1.x-p0.x) };
+}
+
+// Track separation: normally a tight pair; at island stations they bow apart
+function offsetAt(seg, s) {
+  const nearStart = s < seg.len/2;
+  const d = nearStart ? s : seg.len - s;
+  const st = STATIONS[nearStart ? seg.a : seg.b];
+  if (st.type === 'side') return TRACK_OFF;
+  return TRACK_OFF + (ISLAND_OFF - TRACK_OFF) * (1 - smooth((d - PLATFORM_HALF) / 320));
+}
+
+// Pre-build the two running lines of every segment (side = -1 is the "up" track)
+for (const seg of SEGMENTS) {
+  for (const side of [-1, 1]) {
+    const line = [];
+    const step = 26;
+    for (let s = 0; s <= seg.len; s += step) {
+      const p = segPos(seg, s), o = offsetAt(seg, s) * side;
+      line.push({ x: p.x - Math.sin(p.ang)*o, y: p.y + Math.cos(p.ang)*o, ang: p.ang, s });
+    }
+    seg[side < 0 ? 'up' : 'down'] = line;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// LEVEL CROSSINGS + FOOTBRIDGES (the only places you may cross)
+// ═══════════════════════════════════════════════════════════
+const CROSSINGS = [];
+for (let i = 0; i < SEGMENTS.length; i++) {
+  const seg = SEGMENTS[i];
+  const clear = STRAIGHT + 260;
+  const usable = seg.len - clear*2;
+  if (usable < 1500) continue;
+  const n = Math.max(1, Math.round(usable / 3200));
+  for (let k = 1; k <= n; k++) {
+    const s = clear + usable * k / (n + 1);
+    const p = segPos(seg, s);
+    CROSSINGS.push({ x:p.x, y:p.y, ang:p.ang, seg:i, s });
+  }
+}
+
+// A footbridge spans the tracks at every station; complexes also get a concourse
+// walkway between their two halves.
+const BRIDGES = [];
+STATIONS.forEach((st, i) => {
+  const half = (st.type === 'major' ? ISLAND_OFF + PLAT_W + 12
+              : st.type === 'island' ? ISLAND_OFF : TRACK_OFF) + 118;
+  const nx = -Math.sin(st.axis), ny = Math.cos(st.axis);
+  BRIDGES.push({
+    x1: st.x - nx*half, y1: st.y - ny*half,
+    x2: st.x + nx*half, y2: st.y + ny*half,
+    station: i, concourse: false,
+  });
+});
+for (const c of COMPLEXES) {
+  for (let i = 0; i + 1 < c.length; i++) {
+    const A = STATIONS[c[i]], B = STATIONS[c[i+1]];
+    BRIDGES.push({ x1:A.x, y1:A.y, x2:B.x, y2:B.y, station:c[i], concourse:true });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// TRACK LOOKUP GRID — used for "can I walk here?" and for keeping
+// buildings off the railway
+// ═══════════════════════════════════════════════════════════
+const GRID = 600;
+const trackGrid = new Map();
+function gkey(gx, gy) { return gx + ',' + gy; }
+function addTrackPoint(x, y) {
+  const k = gkey(Math.floor(x/GRID), Math.floor(y/GRID));
+  if (!trackGrid.has(k)) trackGrid.set(k, []);
+  trackGrid.get(k).push({ x, y });
+}
+for (const seg of SEGMENTS) for (const side of ['up','down']) for (const p of seg[side]) addTrackPoint(p.x, p.y);
+
+function distToTrack(x, y, max) {
+  const g = Math.floor(x/GRID), h = Math.floor(y/GRID);
+  const r = Math.ceil(max / GRID);
+  let best = Infinity;
+  for (let gx = g-r; gx <= g+r; gx++) for (let gy = h-r; gy <= h+r; gy++) {
+    const arr = trackGrid.get(gkey(gx, gy));
+    if (!arr) continue;
+    for (const p of arr) {
+      const d = Math.hypot(p.x-x, p.y-y);
+      if (d < best) best = d;
+    }
+  }
+  return best;
+}
+
+function nearBridge(x, y) {
+  for (const b of BRIDGES) {
+    const dx = b.x2-b.x1, dy = b.y2-b.y1;
+    const L2 = dx*dx + dy*dy;
+    const t = Math.max(0, Math.min(1, ((x-b.x1)*dx + (y-b.y1)*dy) / L2));
+    if (Math.hypot(b.x1 + dx*t - x, b.y1 + dy*t - y) < 34) return b;
+  }
+  return null;
+}
+function nearCrossing(x, y) {
+  for (const c of CROSSINGS) {
+    if (Math.abs(c.x-x) > 200 || Math.abs(c.y-y) > 200) continue;
+    const dx = x-c.x, dy = y-c.y;
+    const along = dx*Math.cos(c.ang) + dy*Math.sin(c.ang);
+    const across = -dx*Math.sin(c.ang) + dy*Math.cos(c.ang);
+    if (Math.abs(along) < 52 && Math.abs(across) < 190) return c;
+  }
+  return null;
+}
+function canWalk(x, y) {
+  if (x < 0 || y < 0 || x > WORLD || y > WORLD) return false;
+  if (tileKind(Math.floor(x/TILE), Math.floor(y/TILE)) === 'water') return nearBridge(x, y) !== null;
+  if (distToTrack(x, y, 40) < 26) return nearBridge(x, y) !== null || nearCrossing(x, y) !== null;
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════
+// TOWNS — placed along the railway once it exists, plus villages
+// spread across the country like a real map
+// ═══════════════════════════════════════════════════════════
+const TOWNS = STATIONS.map((st, i) => ({
+  x: st.x, y: st.y, name: st.name,
+  r: 620 + st.lines.length * 130,
+}));
+for (let gx = 1; gx < 8; gx++) for (let gy = 1; gy < 8; gy++) {
+  const x = gx*5200 + (hash(gx, gy) % 1800) - 900;
+  const y = gy*5200 + (hash(gy, gx) % 1800) - 900;
+  if (TOWNS.some(t => Math.hypot(t.x-x, t.y-y) < 3200)) continue;
+  TOWNS.push({ x, y, name:null, r: 300 + hash(gx*3, gy*5) % 220 });
+}
+function townAt(wx, wy) {
+  for (const t of TOWNS) if (Math.hypot(wx-t.x, wy-t.y) < t.r) return t;
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════
+// TERRAIN
+// ═══════════════════════════════════════════════════════════
+function valNoise(x, y, scale, seed) {
+  const fx = x*scale, fy = y*scale;
+  const ix = Math.floor(fx), iy = Math.floor(fy);
+  const tx = smooth(fx-ix), ty = smooth(fy-iy);
+  const c = (a,b) => (hash(a + seed*101, b + seed*57) % 1000) / 1000;
+  const v00 = c(ix,iy), v10 = c(ix+1,iy), v01 = c(ix,iy+1), v11 = c(ix+1,iy+1);
+  return (v00*(1-tx)+v10*tx)*(1-ty) + (v01*(1-tx)+v11*tx)*ty;
+}
+
+const tileCache = new Map();
+function tileKind(tx, ty) {
+  const key = tx * 100000 + ty;
+  let k = tileCache.get(key);
+  if (k !== undefined) return k;
+  k = computeTile(tx, ty);
+  if (tileCache.size > 240000) tileCache.clear();
+  tileCache.set(key, k);
+  return k;
+}
+function computeTile(tx, ty) {
+  const wx = tx*TILE + TILE/2, wy = ty*TILE + TILE/2;
+  const town = townAt(wx, wy);
+  const onRail = distToTrack(wx, wy, 130);
+
+  if (town) {
+    const d = Math.hypot(wx-town.x, wy-town.y);
+    if (onRail < 110) return 'grass';                  // keep the railway clear of the town
+    if (town.name && d < 300) return 'road';           // station forecourt
+    // Street grid: main streets every 6 tiles, side streets every 3 in the centre
+    const core = d < town.r * 0.55;
+    if (tx % 6 === 0 || ty % 6 === 0) return 'road';
+    if (core && (tx % 3 === 0 || ty % 3 === 0)) return 'road';
+    const h = hash(tx, ty) % 100;
+    if (h < 8) return 'park';                          // greens and squares
+    const density = core ? 76 : 44 * (1 - (d - town.r*0.55) / (town.r*0.45));
+    return h < density ? 'building' : 'grass';
+  }
+  const n = valNoise(tx, ty, 0.022, 1);
+  if (n < 0.22) return onRail < 90 ? 'grass' : 'water';
+  if (n < 0.27) return 'sand';
+  if (onRail < 70) return 'grass';                     // trackside verge
+  if (valNoise(tx, ty, 0.05, 2) > 0.64) return 'forest';
+  const field = valNoise(tx, ty, 0.11, 3);
+  if (field > 0.58) return 'crop';
+  if (field < 0.16) return 'dirt';
+  return 'grass';
+}
+
+const TILE_PALETTES = {
+  road:     ['#8c8c8c','#969696','#888888','#909090'],
+  grass:    ['#4a7c3f','#3d6b35','#527a44','#456838','#4e7540'],
+  crop:     ['#c8a84b','#b89a3e','#d4b055','#c09848','#ccaa50'],
+  dirt:     ['#8b6542','#7a5535','#9a7050','#836040'],
+  sand:     ['#d9c48c','#cfb87e','#e0cd98','#d3bd85'],
+  water:    ['#2b5f8a','#255480','#316992','#2a5e88'],
+  forest:   ['#2f5a2c','#274d26','#356331','#2b5429'],
+  park:     ['#3f7a44','#37703c','#468249','#3b7440'],
+  building: ['#5f6b52','#66714f','#5a6650','#626d55'],   // gardens between the houses
+};
+// Roofs seen from above — every house gets one of these
+const ROOFS = [
+  { roof:'#a8442f', ridge:'#c25a41', eave:'#6d2a1c' },   // terracotta
+  { roof:'#8d5a3b', ridge:'#a56c49', eave:'#5c3823' },   // brown tile
+  { roof:'#556270', ridge:'#6d7c8c', eave:'#343d47' },   // slate
+  { roof:'#7a7f6a', ridge:'#8f947e', eave:'#4d5142' },   // weathered
+  { roof:'#9c8f5f', ridge:'#b3a473', eave:'#655c3a' },   // thatch-ish
+];
+const CIVIC = { roof:'#9aa0a6', ridge:'#b4bac0', eave:'#5f6469' };
+function tileBaseColor(tx, ty, kind) {
+  const arr = TILE_PALETTES[kind];
+  return arr[hash(tx+17, ty+31) % arr.length];
+}
+
+// ═══════════════════════════════════════════════════════════
+// DAY / NIGHT
+// ═══════════════════════════════════════════════════════════
+let gameTime = 0.34;
+const DAY_SPEED = 1 / 600;
+function isNight() { return gameTime < 0.27 || gameTime > 0.79; }
+function timeString() {
+  const mins = Math.floor(gameTime*1440);
+  return String(Math.floor(mins/60)).padStart(2,'0') + ':' + String(mins%60).padStart(2,'0');
+}
+function nightAlpha() {
+  if (gameTime > 0.30 && gameTime < 0.76) return 0;
+  return gameTime <= 0.30 ? Math.min(0.58, (0.30-gameTime)*4) : Math.min(0.58, (gameTime-0.76)*4);
+}
+
+// ═══════════════════════════════════════════════════════════
+// SERVICES — every line runs a regular, self-driving service
+// ═══════════════════════════════════════════════════════════
+const CRUISE = 430, ACCEL = 105, DECEL = 125, DWELL = 8;
+const trains = [];
+
+for (const line of LINES) {
+  let acc = 0;
+  line.route = [];
+  for (const s of line.segs) {
+    const seg = SEGMENTS[s.seg];
+    line.route.push({ seg:s.seg, dir: s.from === seg.a ? 1 : -1, len: seg.len, start: acc, to: s.to });
+    acc += seg.len;
+  }
+  line.total = acc;
+  // A train halts with its whole length alongside the platform, so the stopping
+  // point is half a train beyond the station itself.
+  // Distance from the leading cab's centre to the middle of the whole train
+  const NOSE = (TRAIN_LEN - CAR_LEN) / 2;
+  line.stopList = line.route.map(r => ({ node: r.to, dist: (r.start + r.len + NOSE) % acc }));
+
+  const count = Math.max(3, Math.round(line.total / 11000));
+  for (let i = 0; i < count; i++) {
+    const D = line.total * i / count;
+    const t = {
+      line, colour: line.colour, name: line.name,
+      D, v: CRUISE * 0.5, dwell: 0, doorsOpen: false, atStation: -1,
+      stopIdx: 0, riders: 0,
+    };
+    t.stopIdx = t.line.stopList.findIndex(s => s.dist > D + 1);
+    if (t.stopIdx < 0) t.stopIdx = 0;
+    trains.push(t);
+  }
+}
+
+function routeAt(line, d) {
+  d = ((d % line.total) + line.total) % line.total;
+  let lo = 0, hi = line.route.length - 1;
+  while (lo < hi) { const mid = (lo+hi+1) >> 1; if (line.route[mid].start <= d) lo = mid; else hi = mid-1; }
+  return line.route[lo];
+}
+
+// Position on the correct running line: trains keep to the left
+function posOnLine(line, d) {
+  const r = routeAt(line, d);
+  const seg = SEGMENTS[r.seg];
+  const local = ((d % line.total) + line.total) % line.total - r.start;
+  const s = r.dir > 0 ? local : seg.len - local;
+  const p = segPos(seg, s);
+  const ang = r.dir > 0 ? p.ang : p.ang + Math.PI;
+  const off = offsetAt(seg, s);
+  return { x: p.x + Math.sin(ang)*off, y: p.y - Math.cos(ang)*off, ang, seg, s };
+}
+function carPos(t, i) { return posOnLine(t.line, t.D - i*SPACING); }
+
+function nextStop(t) { return t.line.stopList[t.stopIdx % t.line.stopList.length]; }
+function stopAfter(t, n) { return t.line.stopList[(t.stopIdx + n) % t.line.stopList.length]; }
+
+function curveLimit(t) {
+  const p1 = posOnLine(t.line, t.D - 200), p2 = posOnLine(t.line, t.D), p3 = posOnLine(t.line, t.D + 200);
+  const a = Math.hypot(p2.x-p1.x,p2.y-p1.y), b = Math.hypot(p3.x-p2.x,p3.y-p2.y), c = Math.hypot(p3.x-p1.x,p3.y-p1.y);
+  const area = Math.abs((p2.x-p1.x)*(p3.y-p1.y) - (p3.x-p1.x)*(p2.y-p1.y)) / 2;
+  const curv = (a*b*c > 1) ? (4*area)/(a*b*c) : 0;
+  return Math.max(150, CRUISE * (1 - curv*230));
+}
+
+function gapAhead(t) {
+  const me = posOnLine(t.line, t.D);
+  let best = Infinity;
+  for (const o of trains) {
+    if (o === t) continue;
+    const p = posOnLine(o.line, o.D - (CARS-1)*SPACING);   // back of the other train
+    const dx = p.x-me.x, dy = p.y-me.y, d = Math.hypot(dx, dy);
+    if (d > 700) continue;
+    if ((dx*Math.cos(me.ang) + dy*Math.sin(me.ang))/Math.max(1,d) > 0.8) best = Math.min(best, d);
+  }
+  return best;
+}
+
+function updateTrain(t, dt) {
+  if (t.dwell > 0) {
+    t.dwell -= dt; t.v = 0;
+    if (t.dwell <= 0) {
+      t.doorsOpen = false; t.atStation = -1;
+      t.stopIdx = (t.stopIdx + 1) % t.line.stopList.length;
+    }
+    return;
+  }
+  const stop = nextStop(t);
+  let toStop = stop.dist - t.D;
+  if (toStop < -1) toStop += t.line.total;
+
+  let target = Math.min(CRUISE, curveLimit(t));
+  target = Math.min(target, Math.sqrt(Math.max(0, 2*DECEL*Math.max(0, toStop-3))));
+  const gap = gapAhead(t);
+  if (gap < 620) target = Math.min(target, Math.max(0, (gap - 300) * 1.3));
+
+  t.v = t.v < target ? Math.min(target, t.v + ACCEL*dt) : Math.max(target, t.v - DECEL*1.5*dt);
+  t.D = (t.D + t.v*dt) % t.line.total;
+
+  if (toStop <= 5 && t.v < 16) {
+    t.D = stop.dist % t.line.total;
+    t.v = 0; t.dwell = DWELL; t.doorsOpen = true; t.atStation = stop.node;
+    if (player.train === t) {
+      banner('🚉 ' + STATIONS[stop.node].name,
+             'This is a ' + t.name + ' service · press E to get off');
+    }
+  }
+}
+
+// Which side the platform is on, seen from a train: island platforms sit between
+// the tracks (to the driver's right), side platforms outside (to the left).
+function platformSide(stationIdx) { return STATIONS[stationIdx].type === 'island' ? 1 : -1; }
+
+function etaTo(t, stationIdx) {
+  const list = t.line.stopList;
+  for (let n = 0; n < list.length; n++) {
+    const s = list[(t.stopIdx + n) % list.length];
+    if (s.node !== stationIdx) continue;
+    let d = s.dist - t.D;
+    if (d < 0) d += t.line.total;
+    return d / (CRUISE * 0.72) + n * DWELL + (t.dwell > 0 ? t.dwell : 0);
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════
+// PLAYER
+// ═══════════════════════════════════════════════════════════
+const SHIRTS = [
+  { name:'Red', c:'#e74c3c' }, { name:'Blue', c:'#3498db' }, { name:'Green', c:'#2ecc71' },
+  { name:'Gold', c:'#f1c40f' }, { name:'Purple', c:'#9b59b6' }, { name:'Teal', c:'#1abc9c' },
+  { name:'Orange', c:'#e67e22' }, { name:'White', c:'#ecf0f1' },
+];
+let selectedShirt = 0;
+
+const player = {
+  x:0, y:0, ang:-Math.PI/2, colour:SHIRTS[0].c,
+  train:null, car:1, journeys:0, boardings:0, ticket:null, ticketTime:0, step:0,
+};
+
+const sgrid = document.getElementById('shirt-grid');
+SHIRTS.forEach((s, i) => {
+  const btn = document.createElement('div');
+  btn.className = 'shirt-btn' + (i === 0 ? ' selected' : '');
+  const sw = document.createElement('div'); sw.className = 'shirt-swatch'; sw.style.background = s.c;
+  const sp = document.createElement('span'); sp.textContent = s.name;
+  btn.appendChild(sw); btn.appendChild(sp);
+  btn.onclick = () => {
+    document.querySelectorAll('.shirt-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected'); selectedShirt = i;
+  };
+  sgrid.appendChild(btn);
+});
+
+function startGame() {
+  player.colour = SHIRTS[selectedShirt].c;
+  document.getElementById('start-screen').style.display = 'none';
+  gameStarted = true;
+}
+
+// Start on the platform at Kingsbridge Central
+{
+  const st = STATIONS[SI['Kingsbridge Central']];
+  const nx = -Math.sin(st.axis), ny = Math.cos(st.axis);
+  player.x = st.x + nx * 0; player.y = st.y + ny * 0;   // island platform centre
+}
+
+function nearestStation(x, y) {
+  let best = 0, bd = Infinity;
+  STATIONS.forEach((s, i) => { const d = Math.hypot(s.x-x, s.y-y); if (d < bd) { bd = d; best = i; } });
+  return best;
+}
+function stationHere(x, y) {
+  const i = nearestStation(x, y);
+  return Math.hypot(STATIONS[i].x-x, STATIONS[i].y-y) < 420 ? i : -1;
+}
+
+function newTicket() {
+  let dest = 0, tries = 0;
+  do { dest = Math.floor(Math.random()*STATIONS.length); }
+  while (Math.hypot(STATIONS[dest].x-player.x, STATIONS[dest].y-player.y) < 9000 && tries++ < 60);
+  player.ticket = dest;
+  player.ticketTime = 0;
+  banner('🎟️ New ticket', 'Travel to ' + STATIONS[dest].name);
+}
+
+function checkTicket() {
+  if (player.ticket === null) return;
+  const d = Math.hypot(STATIONS[player.ticket].x-player.x, STATIONS[player.ticket].y-player.y);
+  if (d < 300 && !player.train) {
+    player.journeys++;
+    banner('✅ Arrived at ' + STATIONS[player.ticket].name,
+           `Journey ${player.journeys} done in ${Math.round(player.ticketTime)}s`);
+    newTicket();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// INPUT
+// ═══════════════════════════════════════════════════════════
+const keys = {};
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  keys[k] = true;
+  if (!gameStarted) return;
+  if (k === 'm') { toggleMap(); e.preventDefault(); }
+  if (k === 'e') { boardOrAlight(); e.preventDefault(); }
+  if (k === '+' || k === '=') zoom = Math.min(1.3, zoom + 0.1);
+  if (k === '-' || k === '_') zoom = Math.max(0.28, zoom - 0.1);
+  if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)) e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+function boardable() {
+  if (player.train) return null;
+  for (const t of trains) {
+    if (!t.doorsOpen) continue;
+    for (let i = 0; i < CARS; i++) {
+      const p = carPos(t, i);
+      if (Math.hypot(p.x-player.x, p.y-player.y) < 72) return { train:t, car:i };
+    }
+  }
+  return null;
+}
+
+function boardOrAlight() {
+  if (player.train) {
+    const t = player.train;
+    if (!t.doorsOpen) { toast('🚪 The doors are closed — wait for the next stop'); return; }
+    // Step out of the door onto the platform beside it
+    const p = carPos(t, player.car);
+    const side = platformSide(t.atStation);
+    const out = STATIONS[t.atStation].type === 'island' ? ISLAND_OFF : TRACK_OFF + 50;
+    player.x = p.x - Math.sin(p.ang) * side * out;
+    player.y = p.y + Math.cos(p.ang) * side * out;
+    player.train = null; t.riders--;
+    toast('🚶 Got off at ' + STATIONS[t.atStation].name);
+    checkTicket();
+  } else {
+    const b = boardable();
+    if (!b) { toast('❌ No open doors here'); return; }
+    player.train = b.train; player.car = b.car; b.train.riders++; player.boardings++;
+    toast('🚂 Boarded the ' + b.train.name);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// UPDATE
+// ═══════════════════════════════════════════════════════════
+function update(dt) {
+  gameTime = (gameTime + DAY_SPEED*dt) % 1;
+  player.ticketTime += dt;
+  for (const t of trains) updateTrain(t, dt);
+
+  if (player.train) {
+    const p = carPos(player.train, player.car);
+    player.x = p.x; player.y = p.y; player.ang = p.ang;
+  } else {
+    let dx = 0, dy = 0;
+    if (keys['a'] || keys['arrowleft'])  dx -= 1;
+    if (keys['d'] || keys['arrowright']) dx += 1;
+    if (keys['w'] || keys['arrowup'])    dy -= 1;
+    if (keys['s'] || keys['arrowdown'])  dy += 1;
+    if (dx || dy) {
+      const m = Math.hypot(dx, dy);
+      const speed = keys['shift'] ? 340 : 185;
+      const nx = player.x + dx/m*speed*dt, ny = player.y + dy/m*speed*dt;
+      if (canWalk(nx, player.y)) player.x = nx;
+      if (canWalk(player.x, ny)) player.y = ny;
+      player.ang = Math.atan2(dy, dx);
+      player.step += speed*dt;
+      checkTicket();
+    }
+  }
+  updateHUD();
+}
+
+// ═══════════════════════════════════════════════════════════
+// HUD
+// ═══════════════════════════════════════════════════════════
+let toastTimer = 0, bannerTimer = 0;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show'); toastTimer = 3;
+}
+function banner(title, sub) {
+  const el = document.getElementById('banner');
+  el.querySelector('.title').textContent = title;
+  el.querySelector('.sub').textContent = sub;
+  el.classList.add('show'); bannerTimer = 3.4;
+}
+
+function updateHUD() {
+  if (player.ticket !== null) {
+    const d = Math.hypot(STATIONS[player.ticket].x-player.x, STATIONS[player.ticket].y-player.y);
+    document.getElementById('ticket-line').textContent =
+      `🎟️ Travel to ${STATIONS[player.ticket].name} — ${Math.round(d/100)} km away`;
+  }
+
+  const st = document.getElementById('status-line'), nx = document.getElementById('next-line');
+  if (player.train) {
+    const t = player.train;
+    st.textContent = `🚂 Aboard the ${t.name}`;
+    nx.textContent = t.dwell > 0
+      ? `🚪 Doors open at ${STATIONS[t.atStation].name} (${t.dwell.toFixed(0)}s)`
+      : `➡️ Next stop ${STATIONS[nextStop(t).node].name} · then ${STATIONS[stopAfter(t,1).node].name} · ${Math.round(t.v*0.31)} km/h`;
+  } else {
+    const here = stationHere(player.x, player.y);
+    st.textContent = here >= 0 ? `🚶 At ${STATIONS[here].name}` : '🚶 Walking';
+    const near = nearestStation(player.x, player.y);
+    const d = Math.hypot(STATIONS[near].x-player.x, STATIONS[near].y-player.y);
+    nx.textContent = here >= 0
+      ? `🚉 ${ {major:'Interchange · 3 platforms', island:'Island platform', side:'Side platforms'}[STATIONS[here].type] } · ${STATIONS[here].lines.map(l=>LINES[l].name).join(', ')}`
+      : `🚉 Nearest station ${STATIONS[near].name} (${Math.round(d/100)} km)`;
+  }
+  document.getElementById('stats-line').textContent =
+    `🕐 ${timeString()} · 🧳 ${player.journeys} journeys · 🎫 ${player.boardings} trains`;
+
+  // Departure board when standing at a station
+  const boardEl = document.getElementById('board');
+  const here = player.train ? -1 : stationHere(player.x, player.y);
+  if (here >= 0) {
+    const rows = [];
+    for (const t of trains) {
+      const eta = etaTo(t, here);
+      if (eta === null || eta > 240) continue;
+      const list = t.line.stopList;
+      let idx = 0;
+      for (let n = 0; n < list.length; n++) if (list[(t.stopIdx+n) % list.length].node === here) { idx = (t.stopIdx+n+1) % list.length; break; }
+      rows.push({ eta, name:t.name, colour:t.colour, towards: STATIONS[list[idx].node].name,
+                  here: t.atStation === here && t.doorsOpen });
+    }
+    rows.sort((a,b) => a.eta - b.eta);
+    document.getElementById('board-rows').innerHTML = rows.slice(0, 5).map(r =>
+      `<div class="row"><span class="dest"><span style="color:${r.colour}">●</span> ${r.name} <span style="color:#8899aa">→ ${r.towards}</span></span>` +
+      `<span class="eta">${r.here ? 'boarding' : Math.round(r.eta) + 's'}</span></div>`).join('') ||
+      '<div class="row"><span class="dest">no services</span></div>';
+    boardEl.classList.add('show');
+  } else boardEl.classList.remove('show');
+
+  const pr = document.getElementById('prompt');
+  const b = boardable();
+  if (b) {
+    const list = b.train.line.stopList;
+    pr.textContent = `[E] Board the ${b.train.name} → ${STATIONS[stopAfter(b.train,1).node].name}`;
+    pr.classList.add('show');
+  } else if (player.train && player.train.doorsOpen) {
+    pr.textContent = '[E] Get off here';
+    pr.classList.add('show');
+  } else pr.classList.remove('show');
+}
+
+// ═══════════════════════════════════════════════════════════
+// DRAW
+// ═══════════════════════════════════════════════════════════
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.translate(canvas.width/2, canvas.height/2);
+  ctx.scale(zoom, zoom);
+  ctx.translate(-player.x, -player.y);
+  drawTerrain();
+  drawTracks();
+  drawCrossings();
+  drawStations();
+  drawTrains();
+  drawBridges();
+  drawPlayer();
+  drawLabels();
+  ctx.restore();
+  drawDayNight();
+}
+
+function view() {
+  const hw = canvas.width/2/zoom, hh = canvas.height/2/zoom;
+  return { x0:player.x-hw-300, x1:player.x+hw+300, y0:player.y-hh-300, y1:player.y+hh+300, hw, hh };
+}
+
+function drawTerrain() {
+  const v = view();
+  const sTX = Math.floor(v.x0/TILE), sTY = Math.floor(v.y0/TILE);
+  const eTX = Math.ceil(v.x1/TILE),  eTY = Math.ceil(v.y1/TILE);
+  const night = isNight();
+
+  for (let ty = sTY; ty <= eTY; ty++) {
+    for (let tx = sTX; tx <= eTX; tx++) {
+      const kind = tileKind(tx, ty);
+      const px = tx*TILE, py = ty*TILE;
+      ctx.fillStyle = tileBaseColor(tx, ty, kind);
+      ctx.fillRect(px, py, TILE, TILE);
+
+      if (kind === 'crop') {
+        ctx.strokeStyle = 'rgba(0,0,0,0.10)'; ctx.lineWidth = 1;
+        for (let i = 4; i < TILE; i += 8) { ctx.beginPath(); ctx.moveTo(px, py+i); ctx.lineTo(px+TILE, py+i); ctx.stroke(); }
+      } else if (kind === 'water') {
+        ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = 2;
+        const w = Math.sin((px+py)*0.01 + gameTime*120)*6;
+        ctx.beginPath(); ctx.moveTo(px+8, py+22+w); ctx.lineTo(px+34, py+22+w); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(px+26, py+46-w); ctx.lineTo(px+54, py+46-w); ctx.stroke();
+      } else if (kind === 'forest') {
+        for (let i = 0; i < 3; i++) {
+          const cx = px + hash(tx*7+i, ty*3) % TILE, cy = py + hash(tx*3, ty*7+i) % TILE;
+          const r = 7 + hash(tx+i, ty-i) % 6;
+          ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.beginPath(); ctx.arc(cx+3, cy+4, r, 0, 7); ctx.fill();
+          ctx.fillStyle = ['#2e6b2c','#357a32','#285c26'][hash(tx+i,ty+i)%3];
+          ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill();
+        }
+      } else if (kind === 'park') {
+        for (let i = 0; i < 2; i++) {
+          const cx = px + 12 + hash(tx*11+i, ty*5) % (TILE-24);
+          const cy = py + 12 + hash(tx*5, ty*11+i) % (TILE-24);
+          ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.beginPath(); ctx.arc(cx+3, cy+4, 9, 0, 7); ctx.fill();
+          ctx.fillStyle = ['#2e6b2c','#357a32'][hash(tx+i,ty+i)%2];
+          ctx.beginPath(); ctx.arc(cx, cy, 9, 0, 7); ctx.fill();
+        }
+      } else if (kind === 'road') {
+        ctx.strokeStyle = 'rgba(255,255,255,0.13)'; ctx.lineWidth = 2; ctx.setLineDash([9,9]);
+        if (tx % 6 === 0) { ctx.beginPath(); ctx.moveTo(px+TILE/2, py); ctx.lineTo(px+TILE/2, py+TILE); ctx.stroke(); }
+        if (ty % 6 === 0) { ctx.beginPath(); ctx.moveTo(px, py+TILE/2); ctx.lineTo(px+TILE, py+TILE/2); ctx.stroke(); }
+        ctx.setLineDash([]);
+      } else if (kind === 'building') {
+        drawHouse(tx, ty, px, py, night);
+      }
+    }
+  }
+}
+
+// A house seen from above: you mostly see its roof, with a ridge down the middle
+function drawHouse(tx, ty, px, py, night) {
+  const h = hash(tx, ty);
+  const big = (h % 100) < 14;                       // shops and civic buildings
+  const pal = big ? CIVIC : ROOFS[h % ROOFS.length];
+  const wide = (h >> 3) % 2 === 0;
+  const bw = big ? 50 + h % 10 : (wide ? 40 + h % 12 : 24 + h % 10);
+  const bh = big ? 44 + (h>>4) % 12 : (wide ? 26 + (h>>4) % 8 : 38 + (h>>4) % 10);
+  const bx = px + (TILE-bw)/2 + ((h>>7) % 7) - 3;
+  const by = py + (TILE-bh)/2 + ((h>>9) % 7) - 3;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(bx+4, by+5, bw, bh);
+  ctx.fillStyle = pal.roof; ctx.fillRect(bx, by, bw, bh);
+  ctx.fillStyle = pal.eave; ctx.fillRect(bx, by, bw, 2); ctx.fillRect(bx, by+bh-2, bw, 2);
+  ctx.fillStyle = pal.ridge;
+  if (bw > bh) ctx.fillRect(bx+2, by + bh/2 - 1.5, bw-4, 3);
+  else         ctx.fillRect(bx + bw/2 - 1.5, by+2, 3, bh-4);
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(bx+0.5, by+0.5, bw-1, bh-1);
+
+  if (big) {                                        // rooftop plant + skylights
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(bx+6, by+6, 12, 10);
+    ctx.fillStyle = night ? 'rgba(255,230,140,0.8)' : 'rgba(210,230,240,0.75)';
+    ctx.fillRect(bx+bw-20, by+8, 12, 9);
+  } else {                                          // chimney + a lit window at night
+    ctx.fillStyle = pal.eave;
+    ctx.fillRect(bx + bw - 11, by + 5, 6, 7);
+    if (night) { ctx.fillStyle = 'rgba(255,225,140,0.75)'; ctx.fillRect(bx+5, by+bh-11, 7, 6); }
+  }
+}
+
+function strokePts(pts, style, width, dash) {
+  ctx.strokeStyle = style; ctx.lineWidth = width; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  if (dash) ctx.setLineDash(dash);
+  ctx.beginPath();
+  pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+  ctx.stroke();
+  if (dash) ctx.setLineDash([]);
+}
+
+function drawTracks() {
+  const v = view();
+  for (const seg of SEGMENTS) {
+    if (seg.maxX < v.x0 || seg.minX > v.x1 || seg.maxY < v.y0 || seg.minY > v.y1) continue;
+    for (const key of ['up','down']) {
+      const line = seg[key];
+      const vis = line.filter(p => p.x > v.x0-100 && p.x < v.x1+100 && p.y > v.y0-100 && p.y < v.y1+100);
+      if (vis.length < 2) continue;
+      strokePts(line, '#6d6255', 34);                                  // ballast
+      for (const p of vis) {                                           // sleepers
+        const nx = -Math.sin(p.ang), ny = Math.cos(p.ang);
+        ctx.strokeStyle = '#4d3b2a'; ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.moveTo(p.x-nx*14, p.y-ny*14); ctx.lineTo(p.x+nx*14, p.y+ny*14); ctx.stroke();
+      }
+      for (const off of [-8, 8]) {                                     // rails
+        const rail = line.map(p => ({ x: p.x - Math.sin(p.ang)*off, y: p.y + Math.cos(p.ang)*off }));
+        strokePts(rail, '#b8bcc4', 3.5);
+      }
+    }
+  }
+}
+
+function drawCrossings() {
+  const v = view();
+  for (const c of CROSSINGS) {
+    if (c.x < v.x0 || c.x > v.x1 || c.y < v.y0 || c.y > v.y1) continue;
+    ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.ang);
+    ctx.fillStyle = '#9a9a9a';  ctx.fillRect(-46, -190, 92, 380);
+    ctx.fillStyle = '#7d7d7d';  ctx.fillRect(-46, -190, 92, 10); ctx.fillRect(-46, 180, 92, 10);
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 3; ctx.setLineDash([14,14]);
+    ctx.beginPath(); ctx.moveTo(0, -190); ctx.lineTo(0, 190); ctx.stroke(); ctx.setLineDash([]);
+    for (const sy of [-150, 150]) {                                     // barriers + lights
+      ctx.fillStyle = '#dcdcdc'; ctx.fillRect(-52, sy-4, 104, 8);
+      for (let i = -48; i < 48; i += 24) { ctx.fillStyle = '#c0392b'; ctx.fillRect(i, sy-4, 12, 8); }
+      ctx.fillStyle = '#333'; ctx.fillRect(-58, sy-9, 8, 18);
+      ctx.fillStyle = '#c0392b'; ctx.beginPath(); ctx.arc(-54, sy, 5, 0, 7); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+function drawStations() {
+  const v = view();
+  const night = isNight();
+  for (let i = 0; i < STATIONS.length; i++) {
+    const st = STATIONS[i];
+    if (st.x < v.x0-900 || st.x > v.x1+900 || st.y < v.y0-900 || st.y > v.y1+900) continue;
+    const nx = -Math.sin(st.axis), ny = Math.cos(st.axis);
+
+    ctx.save(); ctx.translate(st.x, st.y); ctx.rotate(st.axis);
+
+    const drawPlatform = (centre, width) => {
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.fillRect(-PLATFORM_HALF+5, centre - width/2 + 5, PLATFORM_HALF*2, width);
+      ctx.fillStyle = '#c9c4b8';
+      ctx.fillRect(-PLATFORM_HALF, centre - width/2, PLATFORM_HALF*2, width);
+      ctx.strokeStyle = '#96917f'; ctx.lineWidth = 2;
+      ctx.strokeRect(-PLATFORM_HALF, centre - width/2, PLATFORM_HALF*2, width);
+      // tactile edge stripes face the track
+      ctx.fillStyle = '#e8d24a';
+      if (centre === 0) {
+        ctx.fillRect(-PLATFORM_HALF, -width/2, PLATFORM_HALF*2, 6);
+        ctx.fillRect(-PLATFORM_HALF,  width/2-6, PLATFORM_HALF*2, 6);
+      } else if (centre < 0) ctx.fillRect(-PLATFORM_HALF, centre + width/2 - 6, PLATFORM_HALF*2, 6);
+      else                   ctx.fillRect(-PLATFORM_HALF, centre - width/2, PLATFORM_HALF*2, 6);
+
+      // benches, lamps and a few waiting figures
+      for (let k = -2; k <= 2; k++) {
+        const px = k * (PLATFORM_HALF/2.6);
+        ctx.fillStyle = '#7a6a52'; ctx.fillRect(px-11, centre-5, 22, 10);
+        ctx.fillStyle = '#555'; ctx.fillRect(px+30, centre-3, 5, 6);
+        ctx.fillStyle = night ? '#ffe9a8' : '#c8c8c8';
+        ctx.beginPath(); ctx.arc(px+32, centre, 6, 0, 7); ctx.fill();
+        if (night) {
+          const g = ctx.createRadialGradient(px+32, centre, 2, px+32, centre, 90);
+          g.addColorStop(0, 'rgba(255,225,150,0.30)'); g.addColorStop(1, 'rgba(255,225,150,0)');
+          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(px+32, centre, 90, 0, 7); ctx.fill();
+        }
+        if (hash(i*5+k, 3) % 3 === 0) {
+          ctx.fillStyle = ['#e74c3c','#3498db','#2ecc71','#f1c40f','#9b59b6'][hash(i+k,7)%5];
+          ctx.beginPath(); ctx.arc(px-6, centre + (centre === 0 ? 14 : 0), 7, 0, 7); ctx.fill();
+        }
+      }
+    };
+
+    if (st.type === 'island') {
+      drawPlatform(0, PLAT_W);                                    // between the tracks
+    } else if (st.type === 'major') {
+      drawPlatform(0, PLAT_W);                                    // island between the tracks
+      drawPlatform(-(ISLAND_OFF + 12 + PLAT_W/2), PLAT_W);        // plus a face outside each
+      drawPlatform( (ISLAND_OFF + 12 + PLAT_W/2), PLAT_W);
+      // canopies over the outer faces
+      for (const s of [-1, 1]) {
+        ctx.fillStyle = 'rgba(40,44,52,0.35)';
+        ctx.fillRect(-PLATFORM_HALF*0.7, s*(ISLAND_OFF + 12 + PLAT_W/2) - PLAT_W/2 + 6, PLATFORM_HALF*1.4, PLAT_W - 12);
+      }
+    } else {
+      drawPlatform(-(TRACK_OFF + 12 + PLAT_W/2), PLAT_W);         // one either side
+      drawPlatform( (TRACK_OFF + 12 + PLAT_W/2), PLAT_W);
+    }
+
+    // Station building, set back beyond the platforms and clear of the footbridge
+    const back = (st.type === 'side' ? TRACK_OFF + PLAT_W + 12
+                : st.type === 'major' ? ISLAND_OFF + PLAT_W + 12 : ISLAND_OFF) + 150;
+    ctx.save(); ctx.translate(PLATFORM_HALF * 0.55, back);
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(-96, -26, 196, 74);
+    ctx.fillStyle = '#8b5a3c'; ctx.fillRect(-100, -30, 196, 74);
+    ctx.fillStyle = '#5d3b26'; ctx.fillRect(-108, -40, 212, 18);
+    ctx.fillStyle = night ? 'rgba(255,225,140,0.95)' : '#cfe8f5';
+    for (let k = 0; k < 4; k++) ctx.fillRect(-80 + k*46, -8, 30, 26);
+    ctx.restore();
+    ctx.restore();
+  }
+}
+
+function drawTrains() {
+  const v = view();
+  const night = isNight();
+  for (const t of trains) {
+    for (let i = CARS-1; i >= 0; i--) {
+      const p = carPos(t, i);
+      if (p.x < v.x0-250 || p.x > v.x1+250 || p.y < v.y0-250 || p.y > v.y1+250) continue;
+      const seeThrough = player.train === t && player.car === i;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.ang);
+      drawCar(t, i, night, seeThrough);
+      ctx.restore();
+    }
+    if (night) {
+      const p = carPos(t, 0);
+      if (p.x > v.x0-400 && p.x < v.x1+400 && p.y > v.y0-400 && p.y < v.y1+400) {
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.ang);
+        const g = ctx.createRadialGradient(50, 0, 10, 50, 0, 420);
+        g.addColorStop(0, 'rgba(255,240,190,0.28)'); g.addColorStop(1, 'rgba(255,240,190,0)');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(50, 0); ctx.arc(50, 0, 420, -0.3, 0.3); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+}
+
+function drawCar(t, index, night, seeThrough) {
+  const w = CAR_LEN, h = CAR_W + (index === 0 ? 4 : 0);
+  const doorSide = t.atStation >= 0 ? platformSide(t.atStation) : 0;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  roundRect(ctx, -w/2+4, -h/2+5, w, h, 8); ctx.fill();
+
+  // Body
+  ctx.fillStyle = t.colour;
+  roundRect(ctx, -w/2, -h/2, w, h, 8); ctx.fill();
+
+  if (seeThrough) {
+    // The roof of the carriage you are riding in fades away so you can see inside
+    ctx.save();
+    roundRect(ctx, -w/2, -h/2, w, h, 8); ctx.clip();
+    ctx.fillStyle = 'rgba(236,240,241,0.92)';                    // interior floor
+    ctx.fillRect(-w/2+4, -h/2+4, w-8, h-8);
+    ctx.fillStyle = '#7f8c9a';                                   // seats
+    for (let k = -1; k <= 1; k++) {
+      ctx.fillRect(k*26-9, -h/2+7, 18, 9);
+      ctx.fillRect(k*26-9,  h/2-16, 18, 9);
+    }
+    ctx.restore();
+    ctx.strokeStyle = shade(t.colour, -0.3); ctx.lineWidth = 4;
+    roundRect(ctx, -w/2, -h/2, w, h, 8); ctx.stroke();
+  } else {
+    ctx.fillStyle = shade(t.colour, -0.55);                      // roof
+    roundRect(ctx, -w/2+6, -h/2+3, w-12, h-6, 6); ctx.fill();
+    ctx.fillStyle = shade(t.colour, -0.3);
+    ctx.fillRect(-w/2+6, -2, w-12, 4);                           // roof ridge
+  }
+
+  // Cab / windows
+  ctx.fillStyle = night ? '#ffe9a8' : '#bfe3f5';
+  if (index === 0) {
+    ctx.fillRect(w/2-24, -11, 13, 22);
+    ctx.fillStyle = '#2b2b2b'; roundRect(ctx, w/2-8, -h/2+4, 10, h-8, 4); ctx.fill();
+    ctx.fillStyle = night ? '#fff6cf' : '#e8e0b0';
+    ctx.beginPath(); ctx.arc(w/2-2, -8, 4, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(w/2-2,  8, 4, 0, 7); ctx.fill();
+  } else if (!seeThrough) {
+    for (let i = 0; i < 4; i++) ctx.fillRect(-w/2+10 + i*18, -9, 13, 18);
+  }
+
+  // Doors: only ever open on the platform side. Big stations have a face on both
+  // sides of the track, so there both sets open.
+  const bothSides = t.atStation >= 0 && STATIONS[t.atStation].type === 'major';
+  for (const side of [-1, 1]) {
+    const open = t.doorsOpen && (bothSides || side === doorSide);
+    ctx.fillStyle = open ? '#2ecc71' : 'rgba(0,0,0,0.35)';
+    const y = side < 0 ? -h/2+2 : h/2-13;
+    ctx.fillRect(-w/2+10, y, 7, 11);
+    ctx.fillRect(w/2-17, y, 7, 11);
+  }
+
+  ctx.fillStyle = '#1e1e22';
+  ctx.fillRect(-w/2+12, -h/2-4, 18, 4); ctx.fillRect(-w/2+12, h/2, 18, 4);
+  ctx.fillRect(w/2-30, -h/2-4, 18, 4);  ctx.fillRect(w/2-30, h/2, 18, 4);
+}
+
+function drawBridges() {
+  const v = view();
+  for (const b of BRIDGES) {
+    if (Math.max(b.x1,b.x2) < v.x0 || Math.min(b.x1,b.x2) > v.x1) continue;
+    if (Math.max(b.y1,b.y2) < v.y0 || Math.min(b.y1,b.y2) > v.y1) continue;
+    const ang = Math.atan2(b.y2-b.y1, b.x2-b.x1);
+    const len = Math.hypot(b.x2-b.x1, b.y2-b.y1);
+    ctx.save(); ctx.translate(b.x1, b.y1); ctx.rotate(ang);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, -26+8, len, 52);
+    ctx.fillStyle = b.concourse ? '#9b8f7d' : '#a89b86';
+    ctx.fillRect(0, -26, len, 52);
+    ctx.strokeStyle = '#6f6555'; ctx.lineWidth = 4;
+    ctx.strokeRect(0, -26, len, 52);
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 2;
+    for (let x = 14; x < len; x += 22) { ctx.beginPath(); ctx.moveTo(x, -24); ctx.lineTo(x, 24); ctx.stroke(); }
+    // steps at each end
+    ctx.fillStyle = '#8d8271';
+    ctx.fillRect(-14, -30, 16, 60); ctx.fillRect(len-2, -30, 16, 60);
+    ctx.restore();
+  }
+}
+
+function drawPlayer() {
+  const R = 15;
+  ctx.save(); ctx.translate(player.x, player.y);
+  if (!player.train) {
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(2, 5, R*0.9, R*0.6, 0, 0, 7); ctx.fill();
+  }
+  const bob = player.train ? 0 : Math.sin(player.step/14) * 1.5;
+  ctx.translate(0, bob);
+  ctx.fillStyle = player.colour;
+  ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 2; ctx.stroke();
+
+  // two eyes near the edge the character is facing
+  ctx.rotate(player.ang);
+  for (const s of [-1, 1]) {
+    const ex = Math.cos(s*0.42) * (R-5), ey = Math.sin(s*0.42) * (R-5);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(ex, ey, 4.4, 0, 7); ctx.fill();
+    ctx.fillStyle = '#1b1b22';
+    ctx.beginPath(); ctx.arc(ex + 1.6, ey, 2.3, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawLabels() {
+  const v = view();
+  ctx.textAlign = 'center';
+  for (let i = 0; i < STATIONS.length; i++) {
+    const st = STATIONS[i];
+    if (st.x < v.x0 || st.x > v.x1 || st.y < v.y0 || st.y > v.y1) continue;
+    const isTicket = player.ticket === i;
+    ctx.font = 'bold 17px monospace';
+    const w = ctx.measureText(st.name).width + 22;
+    const y = st.y - 300;
+    ctx.fillStyle = isTicket ? 'rgba(120,90,0,0.88)' : 'rgba(0,0,0,0.65)';
+    roundRect(ctx, st.x-w/2, y, w, 26, 6); ctx.fill();
+    if (isTicket) { ctx.strokeStyle = '#ffe066'; ctx.lineWidth = 2; ctx.stroke(); }
+    ctx.fillStyle = isTicket ? '#ffe066' : '#fff';
+    ctx.fillText(st.name, st.x, y + 19);
+    // line colour pips
+    const lines = st.lines;
+    lines.forEach((li, k) => {
+      ctx.fillStyle = LINES[li].colour;
+      ctx.beginPath(); ctx.arc(st.x - (lines.length-1)*7 + k*14, y + 34, 5, 0, 7); ctx.fill();
+    });
+  }
+  ctx.textAlign = 'left';
+}
+
+function drawDayNight() {
+  const a = nightAlpha();
+  if (a <= 0) return;
+  ctx.fillStyle = `rgba(6,10,30,${a})`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+// ═══════════════════════════════════════════════════════════
+// MAP
+// ═══════════════════════════════════════════════════════════
+let mapOpen = false;
+function toggleMap() { mapOpen = !mapOpen; document.getElementById('map-overlay').classList.toggle('open', mapOpen); }
+function closeMap()  { mapOpen = false; document.getElementById('map-overlay').classList.remove('open'); }
+document.getElementById('map-legend').innerHTML =
+  LINES.map(l => `<span><i style="background:${l.colour}"></i>${l.name}</span>`).join('');
+
+function drawMap() {
+  const mc = document.getElementById('map-canvas'), m = mc.getContext('2d');
+  const S = mc.width / WORLD;
+  m.fillStyle = '#0d1420'; m.fillRect(0, 0, mc.width, mc.height);
+
+  m.lineWidth = 5; m.lineCap = 'round'; m.lineJoin = 'round';
+  LINES.forEach((line, li) => {
+    const spread = (li - (LINES.length-1)/2) * 1.6;
+    m.strokeStyle = line.colour;
+    for (const r of line.route) {
+      const seg = SEGMENTS[r.seg];
+      m.beginPath();
+      seg.pts.forEach((p, i) => {
+        const x = p.x*S + spread, y = p.y*S + spread;
+        i ? m.lineTo(x, y) : m.moveTo(x, y);
+      });
+      m.stroke();
+    }
+  });
+
+  m.font = '9px monospace'; m.textAlign = 'center';
+  STATIONS.forEach((st, i) => {
+    const isTicket = player.ticket === i;
+    m.fillStyle = isTicket ? '#ffe066' : '#fff';
+    m.beginPath(); m.arc(st.x*S, st.y*S, isTicket ? 6 : 4, 0, 7); m.fill();
+    m.strokeStyle = '#111'; m.lineWidth = 1.5; m.stroke();
+    m.fillStyle = isTicket ? '#ffe066' : '#c8d2dc';
+    m.fillText(st.name, st.x*S, st.y*S - 8);
+  });
+
+  for (const t of trains) {
+    const p = carPos(t, 0);
+    m.fillStyle = t.colour;
+    m.beginPath(); m.arc(p.x*S, p.y*S, 3.5, 0, 7); m.fill();
+  }
+
+  m.fillStyle = '#3498db';
+  m.beginPath(); m.arc(player.x*S, player.y*S, 6, 0, 7); m.fill();
+  m.strokeStyle = '#fff'; m.lineWidth = 2; m.stroke();
+  m.textAlign = 'left';
+}
+
+// ═══════════════════════════════════════════════════════════
+// LOOP
+// ═══════════════════════════════════════════════════════════
+newTicket();
+
+let lastTime = 0;
+function loop(ts) {
+  const dt = Math.min(0.05, (ts - lastTime)/1000 || 0);
+  lastTime = ts;
+  if (gameStarted) {
+    update(dt);
+    if (mapOpen) drawMap();
+    if (toastTimer  > 0) { toastTimer  -= dt; if (toastTimer  <= 0) document.getElementById('toast').classList.remove('show'); }
+    if (bannerTimer > 0) { bannerTimer -= dt; if (bannerTimer <= 0) document.getElementById('banner').classList.remove('show'); }
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
