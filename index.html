@@ -104,7 +104,7 @@ const ctx    = canvas.getContext('2d');
 function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
 resize(); addEventListener('resize', resize);
 
-const SCALE = 1.6;                 // how far apart the towns are spread
+const SCALE = 1;                   // how far apart the towns are spread
 const WORLD = Math.round(42000 * SCALE), TILE = 64;
 let zoom = 0.5;
 let gameStarted = false;
