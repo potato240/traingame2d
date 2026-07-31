@@ -373,7 +373,29 @@ for (let i = 0; i < SEGMENTS.length; i++) {
   for (let k = 1; k <= n; k++) {
     const s = clear + usable * k / (n + 1);
     const p = segPos(seg, s);
-    CROSSINGS.push({ x:p.x, y:p.y, ang:p.ang, seg:i, s });
+    CROSSINGS.push({ x:p.x, y:p.y, ang:p.ang, seg:i, s, close:0, flash:0 });
+  }
+}
+const CROSS_BY_SEG = {};
+CROSSINGS.forEach(c => (CROSS_BY_SEG[c.seg] = CROSS_BY_SEG[c.seg] || []).push(c));
+
+// Barriers come down when a train is on its way and go up once it has passed
+const CROSS_WARN = 1500;
+function updateCrossings(dt) {
+  for (const c of CROSSINGS) c._want = false;
+  for (const t of trains) {
+    const list = CROSS_BY_SEG[t._r.seg];
+    if (!list) continue;
+    const seg = SEGMENTS[t._r.seg];
+    const nose = t._r.dir > 0 ? t._local : seg.len - t._local;
+    for (const c of list) {
+      const toCross = t._r.dir > 0 ? c.s - nose : nose - c.s;
+      if (toCross < CROSS_WARN && toCross > -(TRAIN_LEN + 60)) c._want = true;
+    }
+  }
+  for (const c of CROSSINGS) {
+    c.close = Math.max(0, Math.min(1, c.close + (c._want ? dt*1.7 : -dt*1.1)));
+    if (c.close > 0.05) c.flash += dt;
   }
 }
 
@@ -446,10 +468,22 @@ function nearCrossing(x, y) {
   }
   return null;
 }
+function acrossCrossing(c, x, y) {
+  return -(x - c.x)*Math.sin(c.ang) + (y - c.y)*Math.cos(c.ang);
+}
 function canWalk(x, y) {
   if (x < 0 || y < 0 || x > WORLD || y > WORLD) return false;
+
+  // The barriers really do stop you
+  const c = nearCrossing(x, y);
+  if (c && c.close > 0.35 && Math.abs(acrossCrossing(c, x, y)) < 162) {
+    const here = nearCrossing(player.x, player.y);
+    const inside = here === c && Math.abs(acrossCrossing(c, player.x, player.y)) < 162;
+    if (!inside) return false;                       // wait for the train to pass
+  }
+
   if (tileKind(Math.floor(x/TILE), Math.floor(y/TILE)) === 'water') return nearBridge(x, y) !== null;
-  if (distToTrack(x, y, 40) < 26) return nearBridge(x, y) !== null || nearCrossing(x, y) !== null;
+  if (distToTrack(x, y, 40) < 26) return nearBridge(x, y) !== null || c !== null;
   return true;
 }
 
@@ -1008,6 +1042,7 @@ function update(dt) {
   player.ticketTime += dt;
   buildOccupancy();
   for (const t of trains) updateTrain(t, dt);
+  updateCrossings(dt);
 
   if (player.train) {
     const p = carPos(player.train, player.car);
@@ -1248,15 +1283,31 @@ function drawCrossings() {
   for (const c of CROSSINGS) {
     if (c.x < v.x0 || c.x > v.x1 || c.y < v.y0 || c.y > v.y1) continue;
     ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.ang);
-    ctx.fillStyle = '#9a9a9a';  ctx.fillRect(-46, -190, 92, 380);
-    ctx.fillStyle = '#7d7d7d';  ctx.fillRect(-46, -190, 92, 10); ctx.fillRect(-46, 180, 92, 10);
+
+    // the lane, then the deck over the rails
+    ctx.fillStyle = '#7f6a4e'; ctx.fillRect(-34, -430, 68, 860);
+    ctx.fillStyle = '#9a9a9a'; ctx.fillRect(-46, -190, 92, 380);
+    ctx.fillStyle = '#7d7d7d'; ctx.fillRect(-46, -190, 92, 10); ctx.fillRect(-46, 180, 92, 10);
     ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 3; ctx.setLineDash([14,14]);
-    ctx.beginPath(); ctx.moveTo(0, -190); ctx.lineTo(0, 190); ctx.stroke(); ctx.setLineDash([]);
-    for (const sy of [-150, 150]) {                                     // barriers + lights
-      ctx.fillStyle = '#dcdcdc'; ctx.fillRect(-52, sy-4, 104, 8);
-      for (let i = -48; i < 48; i += 24) { ctx.fillStyle = '#c0392b'; ctx.fillRect(i, sy-4, 12, 8); }
-      ctx.fillStyle = '#333'; ctx.fillRect(-58, sy-9, 8, 18);
-      ctx.fillStyle = '#c0392b'; ctx.beginPath(); ctx.arc(-54, sy, 5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(0, -430); ctx.lineTo(0, 430); ctx.stroke(); ctx.setLineDash([]);
+
+    const down = c.close;                                  // 0 = up and clear, 1 = fully down
+    const blink = c.close > 0.05 && Math.floor(c.flash * 3) % 2 === 0;
+    for (const side of [-1, 1]) {
+      const sy = side * 150, pivotX = side * 52;
+      // post and its pair of warning lights
+      ctx.fillStyle = '#3a3a3a'; ctx.fillRect(pivotX - side*5, sy - 11, 10, 22);
+      for (const ly of [-7, 7]) {
+        ctx.fillStyle = (blink && (ly < 0) === (Math.floor(c.flash*3) % 4 < 2)) ? '#ff3b2f' : '#5a2320';
+        ctx.beginPath(); ctx.arc(pivotX + side*10, sy + ly, 4.5, 0, 7); ctx.fill();
+      }
+      // the arm swings from lying along the lane to barring the road
+      ctx.save();
+      ctx.translate(pivotX, sy);
+      ctx.rotate(side * (Math.PI/2) * (1 - down));
+      ctx.fillStyle = '#e8e8e8'; ctx.fillRect(-side*104, -4, side*104, 8);
+      for (let i = 12; i < 100; i += 24) { ctx.fillStyle = '#c0392b'; ctx.fillRect(-side*(i+12), -4, side*12, 8); }
+      ctx.restore();
     }
     ctx.restore();
   }
