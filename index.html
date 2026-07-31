@@ -1234,16 +1234,15 @@ function drawPlayer() {
   ctx.translate(0, bob);
   ctx.fillStyle = player.colour;
   ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.strokeStyle = '#1c2b33'; ctx.lineWidth = 2.5; ctx.stroke();
 
-  // two eyes near the edge the character is facing
+  // Two big black eyes right up against the edge the character is facing
   ctx.rotate(player.ang);
+  ctx.fillStyle = '#000';
   for (const s of [-1, 1]) {
-    const ex = Math.cos(s*0.42) * (R-5), ey = Math.sin(s*0.42) * (R-5);
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(ex, ey, 4.4, 0, 7); ctx.fill();
-    ctx.fillStyle = '#1b1b22';
-    ctx.beginPath(); ctx.arc(ex + 1.6, ey, 2.3, 0, 7); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(Math.cos(s*0.42) * R*0.70, Math.sin(s*0.42) * R*0.70, R*0.29, 0, 7);
+    ctx.fill();
   }
   ctx.restore();
 }
