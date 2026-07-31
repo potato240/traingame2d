@@ -603,11 +603,10 @@ function buildService(line, stopNodes, way) {
 const SERVICES = [];
 for (const line of LINES) {
   SERVICES.push(buildService(line, line.stops, 'out'));
-  SERVICES.push(buildService(line, [...line.stops].reverse(), 'back'));
 }
 
 for (const svc of SERVICES) {
-  const count = Math.max(2, Math.round(svc.total / 17000));
+  const count = Math.max(3, Math.round(svc.total / 14000));
   for (let i = 0; i < count; i++) {
     const D = svc.total * i / count;
     const t = {
