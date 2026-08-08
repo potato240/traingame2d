@@ -105,8 +105,8 @@ function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
 resize(); addEventListener('resize', resize);
 
 const SCALE = 1;                   // how far apart the towns are spread
-const Y_SHIFT = 14000;             // room above the country for the northern city
-const WORLD = Math.round(72000 * SCALE), TILE = 64;
+const Y_SHIFT = 18000;             // room above the country for the northern city
+const WORLD = Math.round(78000 * SCALE), TILE = 64;
 let zoom = 0.5;
 let gameStarted = false;
 
@@ -205,11 +205,14 @@ const STATION_DATA = [
   ['Bayside',            56000, 26000, 'metro'],
   // ── Frostholm, the northern city ──
   ['Frostholm Central',  16000, -6000],
+  ['Guildhall',          20000, -6000, 'metro'],
+  ['Observatory',        24000, -6000, 'metro'],
   ['Frost Quay',         16000,-10000, 'metro'],
   ['Old Wharf',          20000,-10000, 'metro'],
   ['Icehouse',           24000,-10000, 'metro'],
-  ['Guildhall',          20000, -6000, 'metro'],
-  ['Observatory',        24000, -6000, 'metro'],
+  ['Northlight',         16000,-14000, 'metro'],
+  ['Ice Harbour',        20000,-14000, 'metro'],
+  ['Auroral Park',       24000,-14000, 'metro'],
   // ── Sunhaven, the southern city ──
   ['Sunhaven Central',   16000, 41000],
   ['Palm Gardens',       20000, 41000, 'metro'],
@@ -217,6 +220,9 @@ const STATION_DATA = [
   ['Old Quay',           16000, 45000, 'metro'],
   ['Sun Market',         20000, 45000, 'metro'],
   ['Lighthouse',         24000, 45000, 'metro'],
+  ['Coral Bay',          16000, 49000, 'metro'],
+  ['Sunset Pier',        20000, 49000, 'metro'],
+  ['Beacon Hill',        24000, 49000, 'metro'],
 ];
 
 const STATIONS = STATION_DATA.map(([name, x, y, style]) => ({
@@ -277,20 +283,26 @@ const LINE_DATA = [
     'University','Docklands','Harbourview','Eastfield'] },
   // ── North to Frostholm ──
   { name:'Frostholm Link', colour:'#5c6bc0', stops:[
-    'Ashford','Frostholm Central','Guildhall','Observatory','Icehouse','Old Wharf',
-    'Frost Quay','Frostholm Central'] },
+    'Ashford','Frostholm Central','Guildhall','Observatory','Icehouse','Auroral Park',
+    'Ice Harbour','Northlight','Frost Quay','Frostholm Central'] },
   { name:'Frost Circle', colour:'#26c6da', metro:true, stops:[
-    'Frost Quay','Old Wharf','Icehouse','Observatory','Guildhall','Frostholm Central'] },
+    'Northlight','Ice Harbour','Auroral Park','Icehouse','Observatory','Guildhall',
+    'Frostholm Central','Frost Quay'] },
   { name:'Frost Cross', colour:'#9ccc65', metro:true, stops:[
-    'Old Wharf','Guildhall','Frostholm Central','Frost Quay'] },
+    'Ice Harbour','Old Wharf','Guildhall','Frostholm Central','Frost Quay','Northlight'] },
+  { name:'Frost Harbour', colour:'#80cbc4', metro:true, stops:[
+    'Old Wharf','Ice Harbour','Auroral Park','Icehouse','Observatory','Guildhall'] },
   // ── South to Sunhaven ──
   { name:'Sunhaven Link', colour:'#ef6c00', stops:[
-    'Fernwick','Sunhaven Central','Old Quay','Sun Market','Lighthouse','Marina',
-    'Palm Gardens','Sunhaven Central'] },
+    'Fernwick','Sunhaven Central','Old Quay','Coral Bay','Sunset Pier','Beacon Hill',
+    'Lighthouse','Marina','Palm Gardens','Sunhaven Central'] },
   { name:'Sun Circle', colour:'#ec407a', metro:true, stops:[
-    'Sunhaven Central','Palm Gardens','Marina','Lighthouse','Sun Market','Old Quay'] },
+    'Sunhaven Central','Palm Gardens','Marina','Lighthouse','Beacon Hill','Sunset Pier',
+    'Coral Bay','Old Quay'] },
   { name:'Sun Cross', colour:'#ffa726', metro:true, stops:[
-    'Palm Gardens','Sun Market','Old Quay','Sunhaven Central'] },
+    'Palm Gardens','Sun Market','Sunset Pier','Coral Bay','Old Quay','Sunhaven Central'] },
+  { name:'Sun Bay', colour:'#f06292', metro:true, stops:[
+    'Sun Market','Palm Gardens','Marina','Lighthouse','Beacon Hill','Sunset Pier'] },
 ];
 
 // ── Build the segment graph (a segment is one stretch of double track) ──
@@ -572,8 +584,8 @@ const city = (name, x, y, r) => ({ name, city:true,
   x: Math.round(x*SCALE), y: Math.round((y + Y_SHIFT)*SCALE), r: Math.round(r*SCALE) });
 const CITIES = [
   city('Kingsport', 50000, 20000, 9600),
-  city('Frostholm', 20000, -8000,  6200),
-  city('Sunhaven',  20000, 43000,  6200),
+  city('Frostholm', 20000,-10000,  8800),
+  city('Sunhaven',  20000, 45000,  8800),
 ];
 const CITY = CITIES[0];
 
