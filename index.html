@@ -1550,10 +1550,16 @@ function drawStations() {
 function drawMetroStation(st, i, night, drawPlatform) {
   const halfW = ISLAND_OFF + 74;
 
-  // is a train standing here with its doors open, and on which side?
-  let doorsOpenHere = false, doorSide = 0;
+  // Which edges of the island have a train alongside with its doors open. Each
+  // edge faces its own track, so both can be open at once, and the side has to
+  // be measured in the station's own frame — platformSide() is relative to the
+  // train, so it always picks the same edge.
+  const openEdge = { '-1': false, '1': false };
   for (const t of trains) {
-    if (t.atStation === i && t.doorsOpen) { doorsOpenHere = true; doorSide = platformSide(i); break; }
+    if (t.atStation !== i || !t.doorsOpen) continue;
+    const p = carPos(t, 0);
+    const lat = -(p.x - st.x)*Math.sin(st.axis) + (p.y - st.y)*Math.cos(st.axis);
+    openEdge[lat >= 0 ? '1' : '-1'] = true;
   }
   ctx.fillStyle = '#33383f';                                  // paved concourse
   ctx.fillRect(-PLATFORM_HALF - 74, -halfW, PLATFORM_HALF*2 + 148, halfW*2);
@@ -1570,7 +1576,7 @@ function drawMetroStation(st, i, night, drawPlatform) {
     ctx.fillRect(-PLATFORM_HALF, edge - 4, PLATFORM_HALF*2, 8);
     for (let c = 0; c < CARS; c++) {
       const cx = (c - (CARS-1)/2) * SPACING;
-      const open = doorsOpenHere && doorSide === side;
+      const open = openEdge[String(side)];
       for (const dx of [-CAR_LEN/2 + 13, CAR_LEN/2 - 13]) {
         const x = cx + dx;
         ctx.fillStyle = open ? 'rgba(46,204,113,0.85)' : 'rgba(190,225,245,0.75)';
