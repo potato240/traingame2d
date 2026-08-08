@@ -683,18 +683,24 @@ function buildService(line, stopNodes, way) {
   // Which platform face this service uses. Where the tracks from two directions
   // converge on one face, services have to take it in turns — this is the key
   // each stop reserves.
-  for (const s of svc.stopList) {
+  // What each call needs locked. A station has two roads, one per direction.
+  // A train running straight through uses only its own road, so two of those
+  // in opposite directions can pass at the same time. A train to or from a
+  // branch has to cross the other road to reach its own, so it needs both.
+  svc.stopList.forEach((s, i) => {
     const st = STATIONS[s.node];
     const p = posOnLine(svc, s.dist - NOSE);
     const nx = -Math.sin(st.axis), ny = Math.cos(st.axis);
-    // Plain stations have two independent roads, one per direction. Where a
-    // third line joins, anything off the branch has to cross the other road to
-    // reach its own, so the whole junction is worked as one — a single train
-    // through it at a time.
-    s.slot = st.links.length >= 3
-      ? s.node*2
-      : s.node*2 + (((p.x - st.x)*nx + (p.y - st.y)*ny) > 0 ? 1 : 0);
-  }
+    const road = s.node*2 + (((p.x - st.x)*nx + (p.y - st.y)*ny) > 0 ? 1 : 0);
+
+    const r = svc.route[i], rs = SEGMENTS[r.seg];
+    const from = r.dir > 0 ? rs.a : rs.b;             // the leg we arrive off
+    const to = svc.stopList[(i + 1) % svc.stopList.length].node;
+    const straightThrough = st.through.includes(from) && st.through.includes(to);
+
+    s.keys = (st.links.length < 3 || straightThrough) ? [road] : [s.node*2, s.node*2 + 1];
+    s.slot = s.keys[0];
+  });
   return svc;
 }
 
@@ -779,7 +785,7 @@ function buildOccupancy() {
     let toStop = s.dist - t.D;
     if (toStop < -1) toStop += t.line.total;
     t._toStop = toStop;
-    t._wantFace = toStop < 1800 ? s.slot : null;
+    t._wantKeys = toStop < 1800 ? s.keys : null;
     t._committed = toStop <= COMMIT_DIST;
   }
   for (const arr of occupancy.values()) arr.sort((a, b) => a._local - b._local);
@@ -831,7 +837,7 @@ function facesOccupied(t) {
     if (ahead >  total/2) ahead -= total;
     if (ahead < -total/2) ahead += total;
     if (ahead < FACE_RANGE + CAR_LEN/2 && ahead > -(FACE_RANGE + TRAIN_LEN)) {
-      if (!out.includes(s.slot)) out.push(s.slot);
+      for (const k of s.keys) if (!out.includes(k)) out.push(k);
     }
   }
   return out;
@@ -852,22 +858,28 @@ function updateClaims() {
   // take it back off anyone who stalls before committing, so nobody is starved
   for (const [f, t] of [...faceClaim]) {
     const inside = t._faces.includes(f);
-    if (!inside && t._wantFace !== f) { faceClaim.delete(f); continue; }
+    const wants = t._wantKeys && t._wantKeys.includes(f);
+    if (!inside && !wants) { faceClaim.delete(f); continue; }
     if (!inside && !t._committed && (t.stuck || 0) > 6) faceClaim.delete(f);
   }
-  // Anything standing on a platform track holds it
+  // Anything standing on a road holds it
   for (const t of trains) for (const f of t._faces) if (!faceClaim.has(f)) faceClaim.set(f, t);
-  // Otherwise clear the nearest train that is booked for it, well before it
-  // reaches the point of no return
+
+  // Otherwise clear the nearest train booked through, well before it reaches the
+  // point of no return. A movement needing two roads takes them together or not
+  // at all, so it can never sit holding one while waiting for the other.
   for (const t of trains) {
-    const f = t._wantFace;
-    if (f == null || faceClaim.has(f)) continue;
-    if (t._toStop > 1200) continue;
-    const users = faceUsers.get(f);
-    if (users && users.some(o => o !== t)) continue;
+    const keys = t._wantKeys;
+    if (!keys || t._toStop > 1200) continue;
+    if (keys.every(k => faceClaim.get(k) === t)) continue;
+    if (keys.some(k => faceClaim.has(k) && faceClaim.get(k) !== t)) continue;
+    if (keys.some(k => { const u = faceUsers.get(k); return u && u.some(o => o !== t); })) continue;
     let nearest = true;
-    for (const o of trains) if (o !== t && o._wantFace === f && o._toStop < t._toStop) { nearest = false; break; }
-    if (nearest) faceClaim.set(f, t);
+    for (const o of trains) {
+      if (o === t || !o._wantKeys) continue;
+      if (o._toStop < t._toStop && o._wantKeys.some(k => keys.includes(k))) { nearest = false; break; }
+    }
+    if (nearest) for (const k of keys) faceClaim.set(k, t);
   }
 }
 
@@ -951,7 +963,7 @@ function updateTrain(t, dt) {
   // return the rule lets go: braking a train to a stand inside the junction
   // blocks every route through it and the whole area seizes up.
   const toThroat = toStop - COMMIT_DIST;
-  if (toThroat > 0 && faceClaim.get(stop.slot) !== t) {
+  if (toThroat > 0 && !stop.keys.every(k => faceClaim.get(k) === t)) {
     target = Math.min(target, Math.sqrt(Math.max(0, 2*DECEL*toThroat)));
   }
 
