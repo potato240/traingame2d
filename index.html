@@ -105,7 +105,7 @@ function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
 resize(); addEventListener('resize', resize);
 
 const SCALE = 1;                   // how far apart the towns are spread
-const WORLD = Math.round(58000 * SCALE), TILE = 64;
+const WORLD = Math.round(66000 * SCALE), TILE = 64;
 let zoom = 0.5;
 let gameStarted = false;
 
@@ -186,15 +186,22 @@ const STATION_DATA = [
   ['Saltmarsh',          40400,  9800],
   ['Ferrybridge',        40400, 30000],
   // ── Kingsport, the big city, and its metro ──
-  ['Kingsport Central',  44000, 20000],
-  ['Cathedral',          44000, 16000, 'metro'],
-  ['Museum Row',         48000, 16000, 'metro'],
-  ['Skyline',            52000, 16000, 'metro'],
-  ['Market Cross',       48000, 20000, 'metro'],
-  ['University',         52000, 20000, 'metro'],
-  ['Riverside',          44000, 24000, 'metro'],
-  ['Old Town',           48000, 24000, 'metro'],
-  ['Docklands',          52000, 24000, 'metro'],
+  ['Kingsport Central',  44000, 18000],
+  ['Cathedral',          44000, 14000, 'metro'],
+  ['Museum Row',         48000, 14000, 'metro'],
+  ['Skyline',            52000, 14000, 'metro'],
+  ['Crown Park',         56000, 14000, 'metro'],
+  ['Market Cross',       48000, 18000, 'metro'],
+  ['University',         52000, 18000, 'metro'],
+  ['Eastfield',          56000, 18000, 'metro'],
+  ['Riverside',          44000, 22000, 'metro'],
+  ['Old Town',           48000, 22000, 'metro'],
+  ['Docklands',          52000, 22000, 'metro'],
+  ['Harbourview',        56000, 22000, 'metro'],
+  ['Quayside',           44000, 26000, 'metro'],
+  ['Gasworks',           48000, 26000, 'metro'],
+  ['Arena',              52000, 26000, 'metro'],
+  ['Bayside',            56000, 26000, 'metro'],
 ];
 
 const STATIONS = STATION_DATA.map(([name, x, y, style]) => ({
@@ -238,15 +245,21 @@ const LINE_DATA = [
     'Stonewell','Westhaven','Willowmere'] },
   // Out east to the city and back up the coast
   { name:'Kingsport Express', colour:'#d81b60', stops:[
-    'Cliffmoor','Saltmarsh','Cathedral','Kingsport Central','Riverside','Ferrybridge',
+    'Cliffmoor','Saltmarsh','Cathedral','Kingsport Central','Riverside','Quayside','Ferrybridge',
     'Longbay','Fairwater','Seacliff','Eastmarket'] },
   // ── Kingsport Metro ──
   { name:'Metro Circle', colour:'#00acc1', metro:true, stops:[
-    'Cathedral','Museum Row','Skyline','University','Docklands','Old Town','Riverside','Kingsport Central'] },
-  { name:'Metro Cross', colour:'#7cb342', metro:true, stops:[
-    'Museum Row','Market Cross','Old Town','Riverside','Kingsport Central','Cathedral'] },
-  { name:'Metro East', colour:'#fb8c00', metro:true, stops:[
-    'Market Cross','University','Skyline','Museum Row'] },
+    'Cathedral','Museum Row','Skyline','Crown Park','Eastfield','Harbourview','Bayside',
+    'Arena','Gasworks','Quayside','Riverside','Kingsport Central'] },
+  { name:'Metro Cross-City', colour:'#7cb342', metro:true, stops:[
+    'Kingsport Central','Market Cross','University','Eastfield','Crown Park','Skyline',
+    'Museum Row','Cathedral'] },
+  { name:'Metro Dockside', colour:'#fb8c00', metro:true, stops:[
+    'Riverside','Old Town','Docklands','Harbourview','Bayside','Arena','Gasworks','Quayside'] },
+  { name:'Metro City Loop', colour:'#ab47bc', metro:true, stops:[
+    'Kingsport Central','Market Cross','Old Town','Riverside'] },
+  { name:'Metro Eastway', colour:'#ffca28', metro:true, stops:[
+    'University','Docklands','Harbourview','Eastfield'] },
 ];
 
 // ── Build the segment graph (a segment is one stretch of double track) ──
@@ -524,7 +537,7 @@ function canWalk(x, y) {
 // spread across the country like a real map
 // ═══════════════════════════════════════════════════════════
 // Kingsport: one continuous built-up area covering the whole metro grid
-const CITY = { x: Math.round(48000*SCALE), y: Math.round(20000*SCALE), r: Math.round(6400*SCALE), name:'Kingsport', city:true };
+const CITY = { x: Math.round(50000*SCALE), y: Math.round(20000*SCALE), r: Math.round(9600*SCALE), name:'Kingsport', city:true };
 
 const TOWNS = [CITY].concat(STATIONS.map((st, i) => ({
   x: st.x, y: st.y, name: st.name,
@@ -1715,10 +1728,24 @@ function closeMap()  { mapOpen = false; document.getElementById('map-overlay').c
 document.getElementById('map-legend').innerHTML =
   LINES.map(l => `<span><i style="background:${l.colour}"></i>${l.name}</span>`).join('');
 
+// Frame the map on the network itself, not on the empty corners of the world
+const MAP_BOX = (() => {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const s of STATIONS) {
+    x0 = Math.min(x0, s.x); x1 = Math.max(x1, s.x);
+    y0 = Math.min(y0, s.y); y1 = Math.max(y1, s.y);
+  }
+  const pad = 2200;
+  x0 -= pad; y0 -= pad; x1 += pad; y1 += pad;
+  const w = x1 - x0, h = y1 - y0, side = Math.max(w, h);
+  return { x0: x0 - (side - w)/2, y0: y0 - (side - h)/2, side };
+})();
+
 function drawMap() {
   const mc = document.getElementById('map-canvas'), m = mc.getContext('2d');
-  const S = mc.width / WORLD;
+  const S = mc.width / MAP_BOX.side;
   m.fillStyle = '#0d1420'; m.fillRect(0, 0, mc.width, mc.height);
+  m.save(); m.translate(-MAP_BOX.x0 * S, -MAP_BOX.y0 * S);
 
   m.lineWidth = Math.max(4, mc.width / 130); m.lineCap = 'round'; m.lineJoin = 'round';
   LINES.forEach((line, li) => {
@@ -1756,6 +1783,7 @@ function drawMap() {
   m.fillStyle = '#3498db';
   m.beginPath(); m.arc(player.x*S, player.y*S, mc.width/100, 0, 7); m.fill();
   m.strokeStyle = '#fff'; m.lineWidth = 2; m.stroke();
+  m.restore();
   m.textAlign = 'left';
 }
 
