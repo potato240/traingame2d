@@ -105,7 +105,8 @@ function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
 resize(); addEventListener('resize', resize);
 
 const SCALE = 1;                   // how far apart the towns are spread
-const WORLD = Math.round(66000 * SCALE), TILE = 64;
+const Y_SHIFT = 14000;             // room above the country for the northern city
+const WORLD = Math.round(72000 * SCALE), TILE = 64;
 let zoom = 0.5;
 let gameStarted = false;
 
@@ -202,10 +203,24 @@ const STATION_DATA = [
   ['Gasworks',           48000, 26000, 'metro'],
   ['Arena',              52000, 26000, 'metro'],
   ['Bayside',            56000, 26000, 'metro'],
+  // ── Frostholm, the northern city ──
+  ['Frostholm Central',  16000, -6000],
+  ['Frost Quay',         16000,-10000, 'metro'],
+  ['Old Wharf',          20000,-10000, 'metro'],
+  ['Icehouse',           24000,-10000, 'metro'],
+  ['Guildhall',          20000, -6000, 'metro'],
+  ['Observatory',        24000, -6000, 'metro'],
+  // ── Sunhaven, the southern city ──
+  ['Sunhaven Central',   16000, 41000],
+  ['Palm Gardens',       20000, 41000, 'metro'],
+  ['Marina',             24000, 41000, 'metro'],
+  ['Old Quay',           16000, 45000, 'metro'],
+  ['Sun Market',         20000, 45000, 'metro'],
+  ['Lighthouse',         24000, 45000, 'metro'],
 ];
 
 const STATIONS = STATION_DATA.map(([name, x, y, style]) => ({
-  name, x: Math.round(x * SCALE), y: Math.round(y * SCALE),
+  name, x: Math.round(x * SCALE), y: Math.round((y + Y_SHIFT) * SCALE),
   links: [], lines: [], axis: 0, type: 'side', style: style || 'main',
 }));
 const SI = {};
@@ -260,6 +275,22 @@ const LINE_DATA = [
     'Kingsport Central','Market Cross','Old Town','Riverside'] },
   { name:'Metro Eastway', colour:'#ffca28', metro:true, stops:[
     'University','Docklands','Harbourview','Eastfield'] },
+  // ── North to Frostholm ──
+  { name:'Frostholm Link', colour:'#5c6bc0', stops:[
+    'Ashford','Frostholm Central','Guildhall','Observatory','Icehouse','Old Wharf',
+    'Frost Quay','Frostholm Central'] },
+  { name:'Frost Circle', colour:'#26c6da', metro:true, stops:[
+    'Frost Quay','Old Wharf','Icehouse','Observatory','Guildhall','Frostholm Central'] },
+  { name:'Frost Cross', colour:'#9ccc65', metro:true, stops:[
+    'Old Wharf','Guildhall','Frostholm Central','Frost Quay'] },
+  // ── South to Sunhaven ──
+  { name:'Sunhaven Link', colour:'#ef6c00', stops:[
+    'Fernwick','Sunhaven Central','Old Quay','Sun Market','Lighthouse','Marina',
+    'Palm Gardens','Sunhaven Central'] },
+  { name:'Sun Circle', colour:'#ec407a', metro:true, stops:[
+    'Sunhaven Central','Palm Gardens','Marina','Lighthouse','Sun Market','Old Quay'] },
+  { name:'Sun Cross', colour:'#ffa726', metro:true, stops:[
+    'Palm Gardens','Sun Market','Old Quay','Sunhaven Central'] },
 ];
 
 // ── Build the segment graph (a segment is one stretch of double track) ──
@@ -536,10 +567,17 @@ function canWalk(x, y) {
 // TOWNS — placed along the railway once it exists, plus villages
 // spread across the country like a real map
 // ═══════════════════════════════════════════════════════════
-// Kingsport: one continuous built-up area covering the whole metro grid
-const CITY = { x: Math.round(50000*SCALE), y: Math.round(20000*SCALE), r: Math.round(9600*SCALE), name:'Kingsport', city:true };
+// The three cities: continuous built-up areas covering each metro grid
+const city = (name, x, y, r) => ({ name, city:true,
+  x: Math.round(x*SCALE), y: Math.round((y + Y_SHIFT)*SCALE), r: Math.round(r*SCALE) });
+const CITIES = [
+  city('Kingsport', 50000, 20000, 9600),
+  city('Frostholm', 20000, -8000,  6200),
+  city('Sunhaven',  20000, 43000,  6200),
+];
+const CITY = CITIES[0];
 
-const TOWNS = [CITY].concat(STATIONS.map((st, i) => ({
+const TOWNS = CITIES.concat(STATIONS.map((st, i) => ({
   x: st.x, y: st.y, name: st.name,
   r: 620 + st.lines.length * 130,
 })));
@@ -710,7 +748,7 @@ for (const line of LINES) {
 }
 
 for (const svc of SERVICES) {
-  const count = Math.max(3, Math.round(svc.total / 14000));
+  const count = Math.max(2, Math.round(svc.total / 17000));
   for (let i = 0; i < count; i++) {
     const D = svc.total * i / count;
     const t = {
