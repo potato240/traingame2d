@@ -105,7 +105,7 @@ function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
 resize(); addEventListener('resize', resize);
 
 const SCALE = 1;                   // how far apart the towns are spread
-const WORLD = Math.round(42000 * SCALE), TILE = 64;
+const WORLD = Math.round(58000 * SCALE), TILE = 64;
 let zoom = 0.5;
 let gameStarted = false;
 
@@ -134,6 +134,7 @@ const SPACING = CAR_LEN + CAR_GAP;
 const TRAIN_LEN = SPACING * (CARS - 1) + CAR_LEN;
 const PLATFORM_HALF = TRAIN_LEN / 2 + 40;
 const STRAIGHT = PLATFORM_HALF + 120;      // straight track either side of every station
+const METRO_STRAIGHT = PLATFORM_HALF + 30; // metro stations are packed closer together
 
 const TRACK_OFF  = 27;                     // half the gap between the two running lines
 const ISLAND_OFF = 66;                     // tracks bow apart to make room for an island platform
@@ -181,11 +182,24 @@ const STATION_DATA = [
   ['Baytown',            27500, 28200],
   ['Fernwick',           14000, 35200],
   ['Harbour End',        29000, 35000],
+  // ── The eastern approach ──
+  ['Saltmarsh',          40400,  9800],
+  ['Ferrybridge',        40400, 30000],
+  // ── Kingsport, the big city, and its metro ──
+  ['Kingsport Central',  44000, 20000],
+  ['Cathedral',          44000, 16000, 'metro'],
+  ['Museum Row',         48000, 16000, 'metro'],
+  ['Skyline',            52000, 16000, 'metro'],
+  ['Market Cross',       48000, 20000, 'metro'],
+  ['University',         52000, 20000, 'metro'],
+  ['Riverside',          44000, 24000, 'metro'],
+  ['Old Town',           48000, 24000, 'metro'],
+  ['Docklands',          52000, 24000, 'metro'],
 ];
 
-const STATIONS = STATION_DATA.map(([name, x, y]) => ({
+const STATIONS = STATION_DATA.map(([name, x, y, style]) => ({
   name, x: Math.round(x * SCALE), y: Math.round(y * SCALE),
-  links: [], lines: [], axis: 0, type: 'side',
+  links: [], lines: [], axis: 0, type: 'side', style: style || 'main',
 }));
 const SI = {};
 STATIONS.forEach((s, i) => SI[s.name] = i);
@@ -222,6 +236,17 @@ const LINE_DATA = [
     'Northport','Ashford','Kestrel Bay','Redstone','Cliffmoor','Eastmarket','Seacliff',
     'Fairwater','Longbay','Harbour End','Kingsmoor','Fernwick','Southport',
     'Stonewell','Westhaven','Willowmere'] },
+  // Out east to the city and back up the coast
+  { name:'Kingsport Express', colour:'#d81b60', stops:[
+    'Cliffmoor','Saltmarsh','Cathedral','Kingsport Central','Riverside','Ferrybridge',
+    'Longbay','Fairwater','Seacliff','Eastmarket'] },
+  // ── Kingsport Metro ──
+  { name:'Metro Circle', colour:'#00acc1', metro:true, stops:[
+    'Cathedral','Museum Row','Skyline','University','Docklands','Old Town','Riverside','Kingsport Central'] },
+  { name:'Metro Cross', colour:'#7cb342', metro:true, stops:[
+    'Museum Row','Market Cross','Old Town','Riverside','Kingsport Central','Cathedral'] },
+  { name:'Metro East', colour:'#fb8c00', metro:true, stops:[
+    'Market Cross','University','Skyline','Museum Row'] },
 ];
 
 // ── Build the segment graph (a segment is one stretch of double track) ──
@@ -282,7 +307,9 @@ STATIONS.forEach((st, i) => {
   }
   // Busy stations get the full treatment: an island platform between the tracks
   // plus a face on the outside of each track, like a big interchange.
-  st.type = st.lines.length >= 4 ? 'major' : ((hash(i*7+3, 5) % 10) < 5 ? 'island' : 'side');
+  st.type = st.style === 'metro' ? 'island'
+          : (st.lines.length >= 4 || st.name === 'Kingsport Central') ? 'major'
+          : ((hash(i*7+3, 5) % 10) < 5 ? 'island' : 'side');
 });
 // Interchange stations get island platforms (roomier, and the concourse lands on them)
 for (const c of COMPLEXES) for (const i of c) STATIONS[i].type = 'island';
@@ -303,14 +330,19 @@ for (const seg of SEGMENTS) {
   const bA = A.bias.get(seg.b) || 0, bB = B.bias.get(seg.a) || 0;
   const A0 = { x: A.x - tA.y*bA, y: A.y + tA.x*bA };
   const B0 = { x: B.x - tB.y*bB, y: B.y + tB.x*bB };
-  const SA = { x:A0.x + tA.x*STRAIGHT, y:A0.y + tA.y*STRAIGHT };
-  const SB = { x:B0.x + tB.x*STRAIGHT, y:B0.y + tB.y*STRAIGHT };
-  const k = Math.hypot(SB.x-SA.x, SB.y-SA.y) * 0.42;
+  // Metro stations sit close together, so they get a shorter straight zone —
+  // otherwise there is no room left to turn and the curves become hairpins
+  const sA = A.style === 'metro' ? METRO_STRAIGHT : STRAIGHT;
+  const sB = B.style === 'metro' ? METRO_STRAIGHT : STRAIGHT;
+  const SA = { x:A0.x + tA.x*sA, y:A0.y + tA.y*sA };
+  const SB = { x:B0.x + tB.x*sB, y:B0.y + tB.y*sB };
+  const metro = A.style === 'metro' || B.style === 'metro';
+  const k = Math.hypot(SB.x-SA.x, SB.y-SA.y) * (metro ? 0.60 : 0.42);
   const C1 = { x:SA.x + tA.x*k, y:SA.y + tA.y*k };
   const C2 = { x:SB.x + tB.x*k, y:SB.y + tB.y*k };
 
   const pts = [{ x:A0.x, y:A0.y }];
-  for (let i = 1; i <= 4; i++) pts.push({ x:A0.x + tA.x*STRAIGHT*i/4, y:A0.y + tA.y*STRAIGHT*i/4 });
+  for (let i = 1; i <= 4; i++) pts.push({ x:A0.x + tA.x*sA*i/4, y:A0.y + tA.y*sA*i/4 });
   const steps = Math.max(24, Math.round(Math.hypot(SB.x-SA.x, SB.y-SA.y) / 140));
   for (let i = 1; i < steps; i++) {
     const t = i/steps, u = 1-t;
@@ -319,7 +351,7 @@ for (const seg of SEGMENTS) {
       y: u*u*u*SA.y + 3*u*u*t*C1.y + 3*u*t*t*C2.y + t*t*t*SB.y,
     });
   }
-  for (let i = 4; i >= 1; i--) pts.push({ x:B0.x + tB.x*STRAIGHT*i/4, y:B0.y + tB.y*STRAIGHT*i/4 });
+  for (let i = 4; i >= 1; i--) pts.push({ x:B0.x + tB.x*sB*i/4, y:B0.y + tB.y*sB*i/4 });
   pts.push({ x:B0.x, y:B0.y });
 
   const cum = [0];
@@ -491,15 +523,18 @@ function canWalk(x, y) {
 // TOWNS — placed along the railway once it exists, plus villages
 // spread across the country like a real map
 // ═══════════════════════════════════════════════════════════
-const TOWNS = STATIONS.map((st, i) => ({
+// Kingsport: one continuous built-up area covering the whole metro grid
+const CITY = { x: Math.round(48000*SCALE), y: Math.round(20000*SCALE), r: Math.round(6400*SCALE), name:'Kingsport', city:true };
+
+const TOWNS = [CITY].concat(STATIONS.map((st, i) => ({
   x: st.x, y: st.y, name: st.name,
   r: 620 + st.lines.length * 130,
-}));
+})));
 const VILLAGE_STEP = 5200;
 for (let gx = 1; gx*VILLAGE_STEP < WORLD; gx++) for (let gy = 1; gy*VILLAGE_STEP < WORLD; gy++) {
   const x = gx*VILLAGE_STEP + (hash(gx, gy) % 1800) - 900;
   const y = gy*VILLAGE_STEP + (hash(gy, gx) % 1800) - 900;
-  if (TOWNS.some(t => Math.hypot(t.x-x, t.y-y) < 3200)) continue;
+  if (TOWNS.some(t => Math.hypot(t.x-x, t.y-y) < t.r + 2600)) continue;
   TOWNS.push({ x, y, name:null, r: 300 + hash(gx*3, gy*5) % 220 });
 }
 function townAt(wx, wy) {
@@ -534,6 +569,15 @@ function computeTile(tx, ty) {
   const town = townAt(wx, wy);
   const onRail = distToTrack(wx, wy, 130);
 
+  if (town && town.city) {
+    if (onRail < 120) return 'road';                   // paved right up to the railway
+    const edge = Math.hypot(wx-town.x, wy-town.y) / town.r;
+    if (tx % 11 === 0 || ty % 11 === 0) return 'road'; // avenues
+    if (tx % 5 === 0 || ty % 5 === 0) return 'road';   // streets between the blocks
+    const h = hash(tx, ty) % 100;
+    if (h < 6) return 'park';
+    return h < 96 - edge*45 ? 'tower' : 'grass';
+  }
   if (town) {
     const d = Math.hypot(wx-town.x, wy-town.y);
     if (onRail < 110) return 'grass';                  // keep the railway clear of the town
@@ -567,6 +611,7 @@ const TILE_PALETTES = {
   water:    ['#2b5f8a','#255480','#316992','#2a5e88'],
   forest:   ['#2f5a2c','#274d26','#356331','#2b5429'],
   park:     ['#3f7a44','#37703c','#468249','#3b7440'],
+  tower:    ['#4a4f57','#535963','#454a52','#4e545d'],   // city courtyards and service yards
   building: ['#5f6b52','#66714f','#5a6650','#626d55'],   // gardens between the houses
 };
 // Roofs seen from above — every house gets one of these
@@ -1212,6 +1257,8 @@ function drawTerrain() {
         ctx.setLineDash([]);
       } else if (kind === 'building') {
         drawHouse(tx, ty, px, py, night);
+      } else if (kind === 'tower') {
+        drawTower(tx, ty, px, py, night);
       }
     }
   }
@@ -1244,6 +1291,40 @@ function drawHouse(tx, ty, px, py, night) {
     ctx.fillStyle = pal.eave;
     ctx.fillRect(bx + bw - 11, by + 5, 6, 7);
     if (night) { ctx.fillStyle = 'rgba(255,225,140,0.75)'; ctx.fillRect(bx+5, by+bh-11, 7, 6); }
+  }
+}
+
+// City blocks: tall flat-roofed buildings, seen from above with a long shadow
+const TOWER_ROOFS = ['#6c737d','#5a616b','#7a828d','#646b76','#525963'];
+function drawTower(tx, ty, px, py, night) {
+  const h = hash(tx, ty);
+  const tall = (h % 100) < 22;                       // the odd skyscraper
+  const bw = 50 + h % 12, bh = 48 + (h>>4) % 14;
+  const bx = px + (TILE-bw)/2, by = py + (TILE-bh)/2;
+  const lift = tall ? 11 : 5;                        // how far the shadow is thrown
+
+  ctx.fillStyle = 'rgba(0,0,0,0.38)';
+  ctx.fillRect(bx + lift, by + lift + 2, bw, bh);
+  ctx.fillStyle = TOWER_ROOFS[h % TOWER_ROOFS.length];
+  ctx.fillRect(bx, by, bw, bh);
+  ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1.5;
+  ctx.strokeRect(bx+0.5, by+0.5, bw-1, bh-1);
+
+  // rooftop clutter: plant, lift housing, helipad on the tall ones
+  ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fillRect(bx+4, by+4, bw-8, 5);
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.fillRect(bx + 7, by + bh - 20, 15, 13);
+  if (tall) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(bx + bw/2, by + bh/2, 11, 0, 7); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fillRect(bx + bw/2 - 4, by + bh/2 - 6, 8, 12);
+  } else {
+    ctx.fillStyle = night ? 'rgba(255,225,140,0.55)' : 'rgba(200,225,240,0.55)';
+    ctx.fillRect(bx + bw - 22, by + bh - 18, 14, 11);
+  }
+  if (night) {                                        // lit windows along the near edge
+    ctx.fillStyle = 'rgba(255,230,150,0.8)';
+    for (let i = 6; i < bw - 8; i += 11) ctx.fillRect(bx + i, by + bh - 4, 6, 3);
   }
 }
 
@@ -1357,6 +1438,12 @@ function drawStations() {
       }
     };
 
+    if (st.style === 'metro') {
+      drawMetroStation(st, i, night, drawPlatform);
+      ctx.restore();
+      continue;
+    }
+
     if (st.type === 'island') {
       drawPlatform(0, PLAT_W);                                    // between the tracks
     } else if (st.type === 'major') {
@@ -1385,6 +1472,48 @@ function drawStations() {
     for (let k = 0; k < 4; k++) ctx.fillRect(-80 + k*46, -8, 30, 26);
     ctx.restore();
     ctx.restore();
+  }
+}
+
+// Kingsport Metro: a concrete box under a glazed canopy, with roundels and
+// street entrances instead of a country station house
+function drawMetroStation(st, i, night, drawPlatform) {
+  const halfW = ISLAND_OFF + 74;
+  ctx.fillStyle = '#33383f';                                  // paved concourse
+  ctx.fillRect(-PLATFORM_HALF - 74, -halfW, PLATFORM_HALF*2 + 148, halfW*2);
+  ctx.strokeStyle = '#22262b'; ctx.lineWidth = 5;
+  ctx.strokeRect(-PLATFORM_HALF - 74, -halfW, PLATFORM_HALF*2 + 148, halfW*2);
+
+  drawPlatform(0, PLAT_W);
+
+  // glazed canopy over the middle of the platform
+  const cl = PLATFORM_HALF * 0.82;
+  ctx.fillStyle = 'rgba(190,225,245,0.30)';
+  ctx.fillRect(-cl, -PLAT_W/2 - 8, cl*2, PLAT_W + 16);
+  ctx.strokeStyle = 'rgba(230,245,255,0.55)'; ctx.lineWidth = 2.5;
+  ctx.strokeRect(-cl, -PLAT_W/2 - 8, cl*2, PLAT_W + 16);
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 2;
+  for (let x = -cl + 22; x < cl; x += 34) {
+    ctx.beginPath(); ctx.moveTo(x, -PLAT_W/2 - 8); ctx.lineTo(x, PLAT_W/2 + 8); ctx.stroke();
+  }
+
+  // street entrances at each end, with a roundel over the stairs
+  for (const s of [-1, 1]) {
+    const ex = s * (PLATFORM_HALF + 40);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(ex - 26, -34 + 5, 52, 68);
+    ctx.fillStyle = '#5b626b'; ctx.fillRect(ex - 26, -34, 52, 68);
+    ctx.fillStyle = night ? 'rgba(255,232,160,0.95)' : '#cfe8f5';
+    ctx.fillRect(ex - 16, -22, 32, 44);
+    ctx.strokeStyle = '#e03a2a'; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(ex, 0, 15, 0, 7); ctx.stroke();
+    ctx.fillStyle = '#1d4ea8'; ctx.fillRect(ex - 19, -4.5, 38, 9);
+  }
+
+  if (night) {                                                 // the canopy glows
+    const g = ctx.createRadialGradient(0, 0, 20, 0, 0, PLATFORM_HALF + 120);
+    g.addColorStop(0, 'rgba(190,225,255,0.20)'); g.addColorStop(1, 'rgba(190,225,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(-PLATFORM_HALF - 120, -halfW - 40, PLATFORM_HALF*2 + 240, halfW*2 + 80);
   }
 }
 
