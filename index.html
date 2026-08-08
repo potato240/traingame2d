@@ -660,6 +660,7 @@ function nightAlpha() {
 // SERVICES — every line runs a regular, self-driving service
 // ═══════════════════════════════════════════════════════════
 const CRUISE = 430, ACCEL = 105, DECEL = 125, DWELL = 8;
+const NOSE = (TRAIN_LEN - CAR_LEN) / 2;    // leading cab centre to the middle of the train
 const trains = [];
 
 // A service is one line worked in one direction. Every line is worked both ways
@@ -677,7 +678,6 @@ function buildService(line, stopNodes, way) {
 
   // A train halts with its whole length alongside the platform, so the stopping
   // point is half a train beyond the station itself.
-  const NOSE = (TRAIN_LEN - CAR_LEN) / 2;
   svc.stopList = svc.route.map(r => ({ node: r.to, dist: (r.start + r.len + NOSE) % acc }));
 
   // Which platform face this service uses. Where the tracks from two directions
@@ -687,7 +687,13 @@ function buildService(line, stopNodes, way) {
     const st = STATIONS[s.node];
     const p = posOnLine(svc, s.dist - NOSE);
     const nx = -Math.sin(st.axis), ny = Math.cos(st.axis);
-    s.slot = s.node*2 + (((p.x - st.x)*nx + (p.y - st.y)*ny) > 0 ? 1 : 0);
+    // Plain stations have two independent roads, one per direction. Where a
+    // third line joins, anything off the branch has to cross the other road to
+    // reach its own, so the whole junction is worked as one — a single train
+    // through it at a time.
+    s.slot = st.links.length >= 3
+      ? s.node*2
+      : s.node*2 + (((p.x - st.x)*nx + (p.y - st.y)*ny) > 0 ? 1 : 0);
   }
   return svc;
 }
@@ -774,8 +780,10 @@ function buildOccupancy() {
     if (toStop < -1) toStop += t.line.total;
     t._toStop = toStop;
     t._wantFace = toStop < 1800 ? s.slot : null;
+    t._committed = toStop <= COMMIT_DIST;
   }
   for (const arr of occupancy.values()) arr.sort((a, b) => a._local - b._local);
+  updateClaims();
 }
 
 // Distance from this train's nose to the tail of the next train on the same rail
@@ -807,37 +815,60 @@ function clearanceAhead(t) {
 const FACE_RANGE = STRAIGHT;
 const faceUsers = new Map();
 
+// Which platform tracks this train is standing on. This has to come from the
+// train's own route, not from where it happens to be relative to the station
+// axis: a branch joins at right angles, so a train swinging in off it reads as
+// being on whichever side of the axis it has not reached yet, and two trains on
+// the very same rail end up labelled as being on opposite ones.
 function facesOccupied(t) {
   const out = [];
-  const total = t.line.total;
-  for (let i = 0; i < CARS; i++) {
-    const d = t.D - i*SPACING;
-    const r = routeAt(t.line, d);
-    const seg = SEGMENTS[r.seg];
-    const local = ((d % total) + total) % total - r.start;
-    const ends = r.dir > 0 ? [[seg.a, local], [seg.b, seg.len - local]]
-                           : [[seg.b, local], [seg.a, seg.len - local]];
-    for (const [node, dist] of ends) {
-      if (dist > FACE_RANGE) continue;
-      const p = posOnLine(t.line, d);
-      const st = STATIONS[node];
-      const f = node*2 + (((p.x - st.x)*(-Math.sin(st.axis)) + (p.y - st.y)*Math.cos(st.axis)) > 0 ? 1 : 0);
-      if (!out.includes(f)) out.push(f);
+  const list = t.line.stopList, total = t.line.total;
+  const n = list.length;
+  for (const k of [-1, 0]) {
+    const s = list[((t.stopIdx + k) % n + n) % n];
+    const node = (s.dist - NOSE + total) % total;          // the station itself
+    let ahead = node - t.D;
+    if (ahead >  total/2) ahead -= total;
+    if (ahead < -total/2) ahead += total;
+    if (ahead < FACE_RANGE + CAR_LEN/2 && ahead > -(FACE_RANGE + TRAIN_LEN)) {
+      if (!out.includes(s.slot)) out.push(s.slot);
     }
   }
   return out;
 }
 
-// May we run into the platform track we are booked for?
-function faceClear(t, stop, toStop) {
-  const users = faceUsers.get(stop.slot);
-  if (users) for (const o of users) if (o !== t) return false;
-  // Two services merging onto the same platform track can both find it empty at
-  // the same moment. The nearer one goes first; the other waits its turn.
-  for (const o of trains) {
-    if (o !== t && o._wantFace === stop.slot && o._toStop < toStop) return false;
+// Past this distance a train can no longer pull up short of the throat, so the
+// decision to let it in has to have been made before it gets this close.
+const COMMIT_DIST = (TRAIN_LEN - CAR_LEN)/2 + FACE_RANGE + CAR_LEN/2;
+
+// One train at a time is cleared onto a platform track, and the clearance is
+// sticky: comparing distances every frame is not enough, because two trains
+// converging from different legs swap over which is nearer, and each time they
+// swap the one in front stops yielding.
+const faceClaim = new Map();
+
+function updateClaims() {
+  // Give up a claim once we are off the track and no longer booked for it, and
+  // take it back off anyone who stalls before committing, so nobody is starved
+  for (const [f, t] of [...faceClaim]) {
+    const inside = t._faces.includes(f);
+    if (!inside && t._wantFace !== f) { faceClaim.delete(f); continue; }
+    if (!inside && !t._committed && (t.stuck || 0) > 6) faceClaim.delete(f);
   }
-  return true;
+  // Anything standing on a platform track holds it
+  for (const t of trains) for (const f of t._faces) if (!faceClaim.has(f)) faceClaim.set(f, t);
+  // Otherwise clear the nearest train that is booked for it, well before it
+  // reaches the point of no return
+  for (const t of trains) {
+    const f = t._wantFace;
+    if (f == null || faceClaim.has(f)) continue;
+    if (t._toStop > 1200) continue;
+    const users = faceUsers.get(f);
+    if (users && users.some(o => o !== t)) continue;
+    let nearest = true;
+    for (const o of trains) if (o !== t && o._wantFace === f && o._toStop < t._toStop) { nearest = false; break; }
+    if (nearest) faceClaim.set(f, t);
+  }
 }
 
 // ── Proximity guard ─────────────────────────────────────────
@@ -850,22 +881,43 @@ const SIGHT = 340;
 
 function proximityGap(t) {
   const nose = carPos(t, 0);
-  const cs = Math.cos(nose.ang), sn = Math.sin(nose.ang);
-  let best = Infinity;
+
+  // anything near enough to matter?
+  const near = [];
   for (const o of trains) {
     if (o === t) continue;
     const lead = carPos(o, 0);
     if (Math.abs(lead.x - nose.x) > SIGHT + TRAIN_LEN || Math.abs(lead.y - nose.y) > SIGHT + TRAIN_LEN) continue;
+    near.push({ o, lead });
+  }
+  if (!near.length) return Infinity;
+
+  // Look along the track we are actually going to take, not in a straight line:
+  // at a junction the train in front is curving away onto another line and a
+  // straight-ahead check does not see it until it is much too late.
+  const STEP = 36, STEPS = 10;
+  const path = [];
+  for (let k = 1; k <= STEPS; k++) path.push(posOnLine(t.line, t.D + k*STEP));
+  const cs = Math.cos(nose.ang), sn = Math.sin(nose.ang);
+
+  let best = Infinity;
+  for (const { o, lead } of near) {
     for (let i = 0; i < CARS; i++) {
       const p = i === 0 ? lead : carPos(o, i);
+      // straight ahead of us
       const dx = p.x - nose.x, dy = p.y - nose.y;
       const fwd = dx*cs + dy*sn;
-      if (fwd <= 0 || fwd > SIGHT) continue;
-      if (Math.abs(-dx*sn + dy*cs) > 32) continue;      // not in our path
-      if (fwd < best) best = fwd;
+      if (fwd > 0 && fwd < best && Math.abs(-dx*sn + dy*cs) <= 32) best = fwd;
+      // and along the line we are about to take
+      for (let k = 0; k < STEPS; k++) {
+        const d = (k+1) * STEP;
+        if (d >= best) break;
+        if (Math.hypot(p.x - path[k].x, p.y - path[k].y) < 42) { best = d; break; }
+      }
     }
   }
-  return best - CAR_LEN;            // nose to the near end of their body
+  // path distances are from our own centre, so take off half a car at each end
+  return best - CAR_LEN;
 }
 
 function updateTrain(t, dt) {
@@ -895,8 +947,11 @@ function updateTrain(t, dt) {
   // Stand outside the throat unless our platform track is free. Once we are too
   // close to stop short we are committed and carry on under the proximity guard
   // alone — braking to a halt inside the throat would block the junction.
-  const toThroat = toStop - (TRAIN_LEN - CAR_LEN)/2 - FACE_RANGE - CAR_LEN/2;
-  if (toThroat > 0 && !faceClear(t, stop, toStop)) {
+  // Without clearance, brake for the throat entrance. Once past the point of no
+  // return the rule lets go: braking a train to a stand inside the junction
+  // blocks every route through it and the whole area seizes up.
+  const toThroat = toStop - COMMIT_DIST;
+  if (toThroat > 0 && faceClaim.get(stop.slot) !== t) {
     target = Math.min(target, Math.sqrt(Math.max(0, 2*DECEL*toThroat)));
   }
 
@@ -909,7 +964,9 @@ function updateTrain(t, dt) {
 
   if (toStop <= 5 && t.v < 16) {
     t.D = stop.dist % t.line.total;
-    t.v = 0; t.dwell = DWELL; t.doorsOpen = true; t.atStation = stop.node;
+    t.v = 0; t.doorsOpen = true; t.atStation = stop.node;
+    // metro trains turn round quickly, which keeps the city junctions clear
+    t.dwell = STATIONS[stop.node].style === 'metro' ? DWELL * 0.5 : DWELL;
     if (player.train === t) {
       banner('🚉 ' + STATIONS[stop.node].name,
              'This is a ' + t.name + ' service · press E to get off');
@@ -1492,12 +1549,42 @@ function drawStations() {
 // street entrances instead of a country station house
 function drawMetroStation(st, i, night, drawPlatform) {
   const halfW = ISLAND_OFF + 74;
+
+  // is a train standing here with its doors open, and on which side?
+  let doorsOpenHere = false, doorSide = 0;
+  for (const t of trains) {
+    if (t.atStation === i && t.doorsOpen) { doorsOpenHere = true; doorSide = platformSide(i); break; }
+  }
   ctx.fillStyle = '#33383f';                                  // paved concourse
   ctx.fillRect(-PLATFORM_HALF - 74, -halfW, PLATFORM_HALF*2 + 148, halfW*2);
   ctx.strokeStyle = '#22262b'; ctx.lineWidth = 5;
   ctx.strokeRect(-PLATFORM_HALF - 74, -halfW, PLATFORM_HALF*2 + 148, halfW*2);
 
   drawPlatform(0, PLAT_W);
+
+  // Platform screen doors along both edges, lining up with the train's doors.
+  // They stand open only while a train is in the platform with its doors open.
+  for (const side of [-1, 1]) {
+    const edge = side * (PLAT_W/2 + 3);
+    ctx.fillStyle = '#2f3740';
+    ctx.fillRect(-PLATFORM_HALF, edge - 4, PLATFORM_HALF*2, 8);
+    for (let c = 0; c < CARS; c++) {
+      const cx = (c - (CARS-1)/2) * SPACING;
+      const open = doorsOpenHere && doorSide === side;
+      for (const dx of [-CAR_LEN/2 + 13, CAR_LEN/2 - 13]) {
+        const x = cx + dx;
+        ctx.fillStyle = open ? 'rgba(46,204,113,0.85)' : 'rgba(190,225,245,0.75)';
+        if (open) {                                   // leaves slid back into their pockets
+          ctx.fillRect(x - 21, edge - 4, 8, 8);
+          ctx.fillRect(x + 13, edge - 4, 8, 8);
+        } else {
+          ctx.fillRect(x - 13, edge - 4, 26, 8);
+          ctx.fillStyle = '#2f3740';
+          ctx.fillRect(x - 1, edge - 4, 2, 8);        // where the leaves meet
+        }
+      }
+    }
+  }
 
   // glazed canopy over the middle of the platform
   const cl = PLATFORM_HALF * 0.82;
