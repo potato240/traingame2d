@@ -836,7 +836,7 @@ function buildOccupancy() {
     if (toStop < -1) toStop += t.line.total;
     t._toStop = toStop;
     t._wantKeys = toStop < 1800 ? s.keys : null;
-    t._committed = toStop <= COMMIT_DIST;
+    t._committed = toStop <= NOSE + STATIONS[s.node].throat + CAR_LEN/2;
   }
   for (const arr of occupancy.values()) arr.sort((a, b) => a._local - b._local);
   updateClaims();
@@ -869,6 +869,46 @@ function clearanceAhead(t) {
 // share a face. Occupancy is only ever read from where trains physically are —
 // nothing is reserved ahead, so no train can ever be waiting on a promise.
 const FACE_RANGE = STRAIGHT;
+
+// How far the lines out of a station run together before they separate. A
+// branch leaves along the station's alignment and only curves away afterwards,
+// so at some junctions two lines share the same ground for well over a thousand
+// pixels — far beyond the platform throat. Anything inside that distance is
+// part of the same conflict.
+// Stations a line calls at twice on one circuit are the turn-back points of a
+// spur. They are busy by nature and a wide lock simply strangles them, so they
+// keep the short throat.
+const TWICE_CALLED = new Set();
+for (const l of LINES) {
+  const seen = new Set();
+  for (const i of l.stops) { if (seen.has(i)) TWICE_CALLED.add(i); seen.add(i); }
+}
+
+STATIONS.forEach((st, idx) => {
+  st.throat = FACE_RANGE;
+  if (st.links.length < 3 || TWICE_CALLED.has(idx)) return;
+  const segs = SEGMENTS.filter(s => s.a === idx || s.b === idx);
+  for (let p = 0; p < segs.length; p++) for (let q = p + 1; q < segs.length; q++) {
+    // Scan the whole approach rather than stopping at the first gap: two lines
+    // can part company outside the platform and then cross back over each other
+    // further out, which is exactly where trains were meeting.
+    for (let d = 60; d < 2400; d += 60) {
+      const sp = segs[p], sq = segs[q];
+      if (d > sp.len || d > sq.len) break;
+      const A = segPos(sp, sp.a === idx ? d : sp.len - d);
+      for (let e = Math.max(60, d - 600); e < Math.min(d + 600, 2400); e += 60) {
+        if (e > sq.len) break;
+        const B = segPos(sq, sq.a === idx ? e : sq.len - e);
+        if (Math.hypot(A.x - B.x, A.y - B.y) < 90) { st.throat = Math.max(st.throat, Math.max(d, e)); break; }
+      }
+    }
+  }
+  // Capped: the lock covers the whole shared corridor for one train at a time,
+  // so a long one throttles the junction badly. This covers the pointwork and
+  // the worst of the shared ground; trains following on the same road are kept
+  // apart by block clearance anyway.
+  st.throat = Math.min(st.throat, 640);
+});
 const faceUsers = new Map();
 
 // Which platform tracks this train is standing on. This has to come from the
@@ -886,7 +926,8 @@ function facesOccupied(t) {
     let ahead = node - t.D;
     if (ahead >  total/2) ahead -= total;
     if (ahead < -total/2) ahead += total;
-    if (ahead < FACE_RANGE + CAR_LEN/2 && ahead > -(FACE_RANGE + TRAIN_LEN)) {
+    const reach = STATIONS[s.node].throat;
+    if (ahead < reach + CAR_LEN/2 && ahead > -(reach + TRAIN_LEN)) {
       for (const k of s.keys) if (!out.includes(k)) out.push(k);
     }
   }
@@ -914,6 +955,17 @@ function updateClaims() {
   }
   // Anything standing on a road holds it
   for (const t of trains) for (const f of t._faces) if (!faceClaim.has(f)) faceClaim.set(f, t);
+
+  // A train past the point of no return cannot be stopped, so it takes the
+  // roads it needs ahead of anyone still able to wait. Without this there is a
+  // window — committed, but not yet standing on the station — where the
+  // interlocking would happily clear a second train in on top of it.
+  for (const t of trains) {
+    const keys = t._wantKeys;
+    if (!keys || !t._committed) continue;
+    if (keys.some(k => faceClaim.has(k) && faceClaim.get(k) !== t)) continue;
+    for (const k of keys) faceClaim.set(k, t);
+  }
 
   // Otherwise clear the nearest train booked through, well before it reaches the
   // point of no return. A movement needing two roads takes them together or not
@@ -1012,7 +1064,7 @@ function updateTrain(t, dt) {
   // Without clearance, brake for the throat entrance. Once past the point of no
   // return the rule lets go: braking a train to a stand inside the junction
   // blocks every route through it and the whole area seizes up.
-  const toThroat = toStop - COMMIT_DIST;
+  const toThroat = toStop - (NOSE + STATIONS[stop.node].throat + CAR_LEN/2);
   if (toThroat > 0 && !stop.keys.every(k => faceClaim.get(k) === t)) {
     target = Math.min(target, Math.sqrt(Math.max(0, 2*DECEL*toThroat)));
   }
