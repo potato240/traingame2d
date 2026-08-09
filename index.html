@@ -886,7 +886,10 @@ for (const l of LINES) {
 
 STATIONS.forEach((st, idx) => {
   st.throat = FACE_RANGE;
-  if (st.links.length < 3 || TWICE_CALLED.has(idx)) return;
+  // Metro stations sit 4,000px apart, so a wide lock at one reaches most of the
+  // way to the next and the whole city grid backs up behind it. They keep the
+  // short throat; their trains are close-coupled and quick off the platform.
+  if (st.links.length < 3 || TWICE_CALLED.has(idx) || st.style === 'metro') return;
   const segs = SEGMENTS.filter(s => s.a === idx || s.b === idx);
   for (let p = 0; p < segs.length; p++) for (let q = p + 1; q < segs.length; q++) {
     // Scan the whole approach rather than stopping at the first gap: two lines
